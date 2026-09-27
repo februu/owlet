@@ -1,5 +1,9 @@
+from owlet.owlet import Owlet
+
+
 def main():
-    print("Hello from owlet!")
+    owlet = Owlet("config.toml")
+    owlet.run()
 
 
 if __name__ == "__main__":
