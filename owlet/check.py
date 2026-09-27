@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 
@@ -12,4 +12,4 @@ class Result:
 
 
 
-type Check = Callable[[str], list[Result]]
+type Check = Callable[[str], Awaitable[list[Result]]]

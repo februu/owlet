@@ -1,5 +1,7 @@
+import asyncio
 import inspect
 import pkgutil
+from collections import defaultdict
 from importlib import import_module
 from pathlib import Path
 
@@ -21,21 +23,36 @@ class Owlet:
         self._validate_required_checks_are_available(required_checks, self._available_checks)
 
 
-    def run(self):
+    async def run(self):
+        results = defaultdict(list)
+
+        async def worker(site: Site):
+            checks_to_run = site.active_checks_overrides or self._active_checks
+            results[site.url] = await self._run_checks(site.url, checks_to_run)
+
+        async with asyncio.TaskGroup() as tg:
+            for site in self._targets:
+                tg.create_task(worker(site))
+
         for site in self._targets:
-            if not site.active_checks_overrides:
-                 results = self._run_checks(site.url, self._active_checks)
-            else:
-                results = self._run_checks(site.url, site.active_checks_overrides)
             print(f"\nResults for {site.url}:")
-            for result in results:
+            for result in results[site.url]:
                 print(f"  - {'[green]SUCCESS[/]' if result.success else '[red]FAILED[/]'}: {result.check_name}{':' if result.content else ''} {result.content}")
 
-    def _run_checks(self, url: str, checks: list[str]) -> list[Result]:
+    async def _run_checks(self, url: str, checks: list[str]) -> list[Result]:
+        results_by_check: dict[str, list[Result]] = {}
+
+        async def worker(check_name: str):
+            check = self._available_checks[check_name]
+            results_by_check[check_name] = await check(url)
+
+        async with asyncio.TaskGroup() as tg:
+            for check_name in checks:
+                tg.create_task(worker(check_name))
+
         results = []
         for check_name in checks:
-            check = self._available_checks[check_name]
-            results.extend(check(url))
+            results.extend(results_by_check[check_name])
         return results
 
     def _load_checks(self) -> dict[str, Check]:
