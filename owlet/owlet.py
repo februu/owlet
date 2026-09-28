@@ -43,7 +43,7 @@ class Owlet:
         for site in self._targets:
             print(f"\nResults for {site.url}:")
             for result in results[site.url]:
-                print(f"  - {'[green]SUCCESS[/]' if result.success else '[red]FAILED[/]'}: {result.check_name}{':' if result.content else ''} {result.content}")
+                print(f"  {'[green]PASS[/]' if result.success else '[red]FAIL[/]'}: {result.check_name}{':' if result.content else ''} {result.content}")
 
     def _load_checks(self) -> dict[str, Check]:
         loaded_checks: dict[str, Check] = {}
