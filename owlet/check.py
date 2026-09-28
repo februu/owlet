@@ -1,6 +1,8 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from owlet.context import Context
+
 
 @dataclass(frozen=True)
 class Result:
@@ -12,4 +14,4 @@ class Result:
 
 
 
-type Check = Callable[[str], Awaitable[list[Result]]]
+type Check = Callable[[Context, str], Awaitable[list[Result]]]

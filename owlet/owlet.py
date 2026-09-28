@@ -5,10 +5,12 @@ from collections import defaultdict
 from importlib import import_module
 from pathlib import Path
 
+import httpx
 from rich import print
 
 from owlet.check import Check, Result
 from owlet.config import Config, Site, load_config
+from owlet.context import Context
 
 
 class Owlet:
@@ -24,36 +26,24 @@ class Owlet:
 
 
     async def run(self):
-        results = defaultdict(list)
+        async with httpx.AsyncClient() as http_client:
+            context = Context(http_client=http_client)
+            results: dict[str, list[Result]] = defaultdict(list)
 
-        async def worker(site: Site):
-            checks_to_run = site.active_checks_overrides or self._active_checks
-            results[site.url] = await self._run_checks(site.url, checks_to_run)
+            async def worker(site: Site, check_name: str):
+                check = self._available_checks[check_name]
+                results[site.url].extend(await check(context, site.url))
 
-        async with asyncio.TaskGroup() as tg:
-            for site in self._targets:
-                tg.create_task(worker(site))
+            async with asyncio.TaskGroup() as tg:
+                for site in self._targets:
+                    checks_to_run = site.active_checks_overrides or self._active_checks
+                    for check_name in checks_to_run:
+                        tg.create_task(worker(site, check_name))
 
         for site in self._targets:
             print(f"\nResults for {site.url}:")
             for result in results[site.url]:
                 print(f"  - {'[green]SUCCESS[/]' if result.success else '[red]FAILED[/]'}: {result.check_name}{':' if result.content else ''} {result.content}")
-
-    async def _run_checks(self, url: str, checks: list[str]) -> list[Result]:
-        results_by_check: dict[str, list[Result]] = {}
-
-        async def worker(check_name: str):
-            check = self._available_checks[check_name]
-            results_by_check[check_name] = await check(url)
-
-        async with asyncio.TaskGroup() as tg:
-            for check_name in checks:
-                tg.create_task(worker(check_name))
-
-        results = []
-        for check_name in checks:
-            results.extend(results_by_check[check_name])
-        return results
 
     def _load_checks(self) -> dict[str, Check]:
         loaded_checks: dict[str, Check] = {}

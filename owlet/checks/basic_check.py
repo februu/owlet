@@ -1,11 +1,8 @@
-import asyncio
-
 from owlet.check import Result
+from owlet.context import Context
 
 
-async def basic_check(url: str) -> list[Result]:
-    # r = httpx.get(url, timeout=10, follow_redirects=True)
-    await asyncio.sleep(2)  # Simulate a delay for the check
+async def basic_check(ctx: Context, url: str) -> list[Result]:
     return [
         Result(
             "basic_check - basic",
@@ -15,6 +12,6 @@ async def basic_check(url: str) -> list[Result]:
     ]
 
 
-async def failing_check(url: str) -> list[Result]:
-    await asyncio.sleep(2) 
+
+async def failing_check(ctx: Context, url: str) -> list[Result]:
     return [Result("failing_check", False, "")]
