@@ -7,8 +7,8 @@ from owlet.context import Context
 SLOW_RESPONSE_SECONDS = 1.5
 
 
-async def http_status(ctx: Context, url: str) -> list[Result]:
-    response = await ctx.http_client.get(url, follow_redirects=True)
+async def http_status(ctx: Context) -> list[Result]:
+    response = await ctx.http_client.get(ctx.target, follow_redirects=True)
     hops = len(response.history)
     redirects = f" after {hops} redirect(s) to {response.url}" if hops else ""
     return [
@@ -20,9 +20,9 @@ async def http_status(ctx: Context, url: str) -> list[Result]:
     ]
 
 
-async def response_time(ctx: Context, url: str) -> list[Result]:
+async def response_time(ctx: Context) -> list[Result]:
     start = time.perf_counter()
-    await ctx.http_client.get(url, follow_redirects=True)
+    await ctx.http_client.get(ctx.target, follow_redirects=True)
     elapsed = time.perf_counter() - start
     return [
         Result(
