@@ -14,4 +14,4 @@ class Result:
 
 
 
-type Check = Callable[[Context, str], Awaitable[list[Result]]]
+type Check = Callable[[Context], Awaitable[list[Result]]]
