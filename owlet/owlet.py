@@ -40,7 +40,6 @@ class Owlet:
                 for check_name in self._active_checks:
                     tg.create_task(worker(check_name))
 
-            print(f"\nResults for {self._target}:")
             for result in results:
                 print(f"  {'[green]PASS[/]' if result.success else '[red]FAIL[/]'}: {result.check_name}{':' if result.content else ''} {result.content}")
 
