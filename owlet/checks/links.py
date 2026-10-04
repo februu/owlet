@@ -4,7 +4,7 @@ from urllib.parse import urldefrag, urljoin
 
 import httpx
 
-from owlet.check import Result
+from owlet.check import Result, check
 from owlet.context import Context
 
 MAX_LINKS = 50
@@ -28,7 +28,9 @@ class _LinkParser(HTMLParser):
             self.links.append(value)
 
 
-async def broken_links(ctx: Context) -> list[Result]:
+@check
+async def broken_links(ctx: Context) -> Result:
+    """Links and resources on the page don't return 4xx/5xx (first MAX_LINKS unique URLs)."""
     response = await ctx.http_client.get(ctx.target, follow_redirects=True)
     parser = _LinkParser()
     parser.feed(response.text)
@@ -45,8 +47,8 @@ async def broken_links(ctx: Context) -> list[Result]:
     problems = [problem for problem in broken if problem]
 
     if problems:
-        return [Result("broken_links", False, f"{len(problems)} of {len(links)} links broken:\n" + "\n".join(problems))]
-    return [Result("broken_links", True, f"All {len(links)} links OK.")]
+        return Result(False, f"{len(problems)} of {len(links)} links broken:\n" + "\n".join(problems))
+    return Result(True, f"All {len(links)} links OK.")
 
 
 async def _find_problem(ctx: Context, semaphore: asyncio.Semaphore, link: str) -> str | None:
