@@ -3,10 +3,9 @@ from enum import IntEnum
 from typing import Any
 
 import httpx
-from rich import print
 
 from owlet.check import Check, Result, Status, discover_checks
-from owlet.config import Config, ConfigError, load_config
+from owlet.config import Config, ConfigError
 from owlet.context import Context
 
 
@@ -18,29 +17,21 @@ class ExitCode(IntEnum):
     CHECKS_FAILED = 1
     """At least one check failed or errored, or warned in strict mode."""
     USAGE_ERROR = 2
-    """Owlet couldn't run: missing or invalid config, or an unknown check name."""
-
-
-STATUS_STYLES = {
-    Status.PASS: "green",
-    Status.WARN: "yellow",
-    Status.FAIL: "red",
-    Status.SKIP: "dim",
-    Status.ERROR: "bold magenta",
-}
+    """Owlet couldn't run: invalid command-line arguments, or a missing or invalid config."""
 
 
 class Owlet:
 
-    def __init__(self, config: Config | str):
-        if isinstance(config, str):
-            config = load_config(config)
+    def __init__(self, config: Config):
         self._target: str = config.target
         self._strict: bool = config.strict
         self._active_checks: list[str] = list(dict.fromkeys(config.active_checks))
         self._available_checks: dict[str, Check] = discover_checks()
         self._validate_required_checks_are_available(self._active_checks, self._available_checks)
         self._check_options: dict[str, dict[str, Any]] = self._resolve_check_options(config.check_options)
+        if not self._active_checks:
+            # An empty run would always exit 0, hiding a broken config in CI.
+            raise ConfigError("No checks to run: active_checks is empty.")
 
 
     async def run(self) -> list[Result]:
@@ -48,12 +39,7 @@ class Owlet:
             context = Context(target=self._target, http_client=http_client)
             async with asyncio.TaskGroup() as tg:
                 tasks = [tg.create_task(self._available_checks[name].run(context, self._check_options.get(name))) for name in self._active_checks]
-            results: list[Result] = [result for task in tasks for result in task.result()]
-
-            for result in results:
-                status = f"[{STATUS_STYLES[result.status]}]{result.status}[/]"
-                print(f"  {status}: {result.label}{f': {result.content}' if result.content else ''}")
-            return results
+            return [result for task in tasks for result in task.result()]
 
     def exit_code(self, results: list[Result]) -> ExitCode:
         failing = {Status.FAIL, Status.ERROR} | ({Status.WARN} if self._strict else set())

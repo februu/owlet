@@ -1,0 +1,147 @@
+import argparse
+import asyncio
+import inspect
+import json
+import sys
+from collections import Counter
+from dataclasses import replace
+from importlib.metadata import metadata
+from itertools import groupby
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+from owlet.check import Check, Result, Status, discover_checks
+from owlet.config import ConfigError, load_config
+from owlet.owlet import ExitCode, Owlet
+
+STATUS_STYLES = {
+    Status.PASS: "green",
+    Status.WARN: "yellow",
+    Status.FAIL: "red",
+    Status.SKIP: "dim",
+    Status.ERROR: "magenta",
+}
+
+console = Console()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    package = metadata("owlet")
+    parser = argparse.ArgumentParser(prog=package["Name"], description=package["Summary"], color=False)
+    parser.add_argument("config", nargs="?", type=Path, help="config file to run")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {package['Version']}")
+    parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
+    parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
+    parser.add_argument("--list-checks", action="store_true", help="list available checks and their options")
+    parser.add_argument("--init", metavar="TARGET", help="print a starter config for TARGET")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args, unknown = parser.parse_known_args(argv)
+    _validate(parser, args, unknown)
+
+    if args.list_checks:
+        return _list_checks()
+    if args.init is not None:
+        print(_starter_config(args.init, list(discover_checks().values())), end="")
+        return ExitCode.OK
+    if args.config is None:
+        parser.print_help()
+        return ExitCode.OK
+    return _run(args.config, args.only, args.strict)
+
+
+def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown: list[str]) -> None:
+    """Reject input argparse can't catch on its own, with errors that say what to type instead."""
+    if args.config and not args.config.exists() and str(args.config) in ("init", "list-checks"):
+        parser.error(f"'{args.config}' is not a config file. Did you mean --{args.config}?")
+    if unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+    if args.init is not None and not args.init.strip():
+        parser.error("--init needs a TARGET URL")
+    modes = [flag for flag, used in (("--list-checks", args.list_checks), ("--init", args.init is not None)) if used]
+    if len(modes) > 1:
+        parser.error("--list-checks and --init can't be used together")
+    if modes and args.config:
+        hint = " Redirect its output instead: owlet --init TARGET > config.toml" if args.init is not None else ""
+        parser.error(f"{modes[0]} doesn't take a config file.{hint}")
+    if not args.config and (args.only or args.strict):
+        parser.error("--only and --strict need a config file to run")
+
+
+def _run(config: Path, only: list[str] | None, strict: bool) -> ExitCode:
+    try:
+        settings = load_config(config)
+        settings = replace(
+            settings,
+            active_checks=only or settings.active_checks,
+            strict=strict or settings.strict,
+        )
+        owlet = Owlet(settings)
+    except ConfigError as e:
+        print(f"Config error: {e}", file=sys.stderr)
+        return ExitCode.USAGE_ERROR
+
+    results = asyncio.run(owlet.run())
+    _print_results(results)
+    return owlet.exit_code(results)
+
+
+def _list_checks() -> ExitCode:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(no_wrap=True)
+    table.add_column()
+    for group, checks in groupby(discover_checks().values(), key=_group):
+        table.add_row("", "")
+        table.add_row(f"== {group} ==", "")
+        for check in checks:
+            table.add_row(check.name, Text(check.description or ""))
+            for name, param in check.options.items():
+                option = f"{name}: {inspect.formatannotation(param.annotation)} = {param.default!r}"
+                table.add_row("", Text(option, style="dim"))
+    console.print(table)
+    console.print()
+    return ExitCode.OK
+
+
+def _group(check: Check) -> str:
+    """The check's module name, e.g. `tls` for owlet.checks.tls."""
+    return check.func.__module__.rpartition(".")[2]
+
+
+def _print_results(results: list[Result]) -> None:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(no_wrap=True)
+    table.add_column(no_wrap=True)
+    table.add_column()
+    for result in results:
+        table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(result.content or ""))
+    console.print(table)
+
+    counts = Counter(result.status for result in results)
+    print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]))
+
+
+def _starter_config(target: str, checks: list[Check]) -> str:
+    lines = [
+        f"target = {json.dumps(target)}",
+        "",
+        "# Treat warnings as failures when deciding the exit code.",
+        "strict = false",
+        "",
+        "active_checks = [",
+    ]
+    for group, group_checks in groupby(checks, key=_group):
+        lines.append(f"    # {group}")
+        lines.extend(f'    "{check.name}",' for check in group_checks)
+    lines += ["]", "", "# Per-check options. Uncomment a table and a line to change a default."]
+    for check in checks:
+        if check.options:
+            lines += ["", f"# [checks.{check.name}]"]
+            lines.extend(f"# {name} = {json.dumps(param.default)}" for name, param in check.options.items())
+    return "\n".join(lines) + "\n"

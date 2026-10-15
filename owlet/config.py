@@ -1,5 +1,6 @@
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -24,7 +25,7 @@ class Config:
 KNOWN_KEYS = {"target", "active_checks", "strict", "checks"}
 
 
-def load_config(file_path: str) -> Config:
+def load_config(file_path: Path) -> Config:
     """Load configuration from a TOML file."""
     try:
         with open(file_path, "rb") as f:
