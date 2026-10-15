@@ -2,7 +2,7 @@
 
 ### 𝚘𝚠𝚕𝚎𝚝
 
-_Owlet is a small async website health checker: availability, TLS, security headers, crawlability and broken links, configured from one TOML file._
+_Owlet is a small async website health checker configured from one TOML file._
 
 ⠀· · ─────── · 𖥸 · ─────── · ·
 
@@ -13,19 +13,19 @@ _Owlet is a small async website health checker: availability, TLS, security head
 - 8 built-in checks covering availability, TLS, security headers, crawlability and links
 - Five result states: `PASS`, `WARN`, `FAIL`, `SKIP` and `ERROR`
 - Per-check options, validated against each check's signature when the config loads
-- Exit codes for CI and cron, with a `strict` mode that treats warnings as failures
-- Checks run concurrently and share HTTP responses, so the same URL is never fetched twice in a run
+- Exit codes for CI and cron, with a strict mode that treats warnings as failures
+- Checks run concurrently and share GET responses, so a page several checks need is downloaded once
 - New checks are picked up automatically: write a function in `owlet/checks/` and decorate it with `@check`
+- A CLI to run checks, list them with their options, and generate a starter config
 
 **Upcoming features:**
 
-- Simple CLI
 - JSON output
 - More checks: DNS and email records, cookie flags, exposed files, SEO basics
 
 _Suggestions are welcome!_
 
-## getting started
+## Getting started
 
 Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
@@ -33,27 +33,36 @@ Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 uv sync
 ```
 
-Create a `config.toml` in the directory you run owlet from (it's git-ignored):
-
-```toml
-target = "https://example.com"
-active_checks = ["http_status", "ssl_certificate", "security_headers"]
-```
-
-Then run:
+Generate a config for your site, then run it:
 
 ```sh
-uv run main.py
+uv run owlet --init https://example.com > config.toml    # config.toml is git-ignored
+uv run owlet config.toml
 ```
 
-Each result prints on its own line as `STATUS: check - detail: message`, in the order the checks are listed in `active_checks`.
+`--init` enables every check and lists every option, commented out at its default. Results print in the order the checks are listed in `active_checks`, followed by a count per status.
 
-## configuration
+## Cli
+
+```
+usage: owlet [-h] [--version] [--only CHECK] [--strict] [--list-checks] [--init TARGET] [config]
+```
+
+Running `owlet` with no arguments shows the help.
+
+| Option | Effect |
+|---|---|
+| `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
+| `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
+| `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
+| `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
+
+## Configuration
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `target` | string | `""` | URL of the site to check. |
-| `active_checks` | list of strings | `[]` | Checks to run, in output order. Duplicates are ignored. |
+| `active_checks` | list of strings | | Checks to run, in output order. Duplicates are ignored. Must list at least one check, unless you pass `--only`. |
 | `strict` | bool | `false` | Treat `WARN` as a failure when deciding the exit code. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
 
@@ -71,7 +80,7 @@ warn_days = 45
 
 Owlet validates the whole config before it sends any request. Unknown keys, unknown checks, unknown options and values of the wrong type all stop the run with a `Config error:` message and exit code 2. Options for checks that aren't in `active_checks` are validated too, so a typo doesn't stay hidden until you turn the check on.
 
-## checks
+## Checks
 
 | Check | What it verifies | Options (default) |
 |---|---|---|
@@ -84,7 +93,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 | `sitemap` | A sitemap is listed in `robots.txt` or served at `/sitemap.xml`. `WARN` if missing, `FAIL` if invalid. | |
 | `broken_links` | Links and resources on the page don't return 4xx or 5xx. | `max_links` (50), `max_concurrent_requests` (10) |
 
-## results and exit codes
+## Results and exit codes
 
 | Status | Meaning |
 |---|---|
@@ -98,9 +107,9 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 |---|---|
 | `0` | No failures. Warnings and skips are allowed unless `strict = true`. |
 | `1` | At least one `FAIL` or `ERROR`, or a `WARN` in strict mode. |
-| `2` | The config is missing or invalid. |
+| `2` | Invalid command-line arguments, or a missing or invalid config. |
 
-## writing a check
+## Writing your own check
 
 Add a function to any module in `owlet/checks/` and decorate it with `@check`. The function name becomes the check name.
 
@@ -111,16 +120,16 @@ from owlet.context import Context
 
 @check
 async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
-    """The page has a non-empty <title>."""
+    """The page has a <title> of at least `min_length` characters."""
     response = await ctx.get(ctx.target)
     ...
     return Result(Status.PASS, "Found a title.")
 ```
 
-- **Context:** the first parameter. `ctx.target` is the configured URL, and `ctx.get(url)` fetches a URL once per run and shares the response with every other check.
-- **Options:** keyword-only parameters after `*`. Each one needs a default and a type annotation; the annotation is what owlet validates config values against. Supported types are `int`, `float`, `bool`, `str` and `list[...]`.
+- **Context:** the first parameter. `ctx.target` is the configured URL, and `ctx.get(url)` sends a GET once per run and shares the response with every other check. Requests made directly through `ctx.http_client` aren't shared.
+- **Options:** keyword-only parameters after `*`, each with a default. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
 - **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`.
-- **Docstring:** stored as the check's description, so write it as a one-line summary of what passing means.
+- **Docstring:** shown by `owlet --list-checks`, so write it as a one-line summary of what passing means.
 
 Checks can be `async def` (preferred), async generators, or plain functions. Plain functions run in a worker thread.
