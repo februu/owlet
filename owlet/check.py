@@ -1,11 +1,11 @@
 import asyncio
 import inspect
 import pkgutil
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from importlib import import_module
-from typing import Any
+from typing import Any, Concatenate, get_args, get_origin
 
 import httpx
 
@@ -42,8 +42,8 @@ class Result:
 
 
 type CheckOutput = Result | Iterable[Result]
-type CheckFunction = Callable[[Context], Awaitable[CheckOutput] | AsyncIterator[Result] | CheckOutput]
-
+type CheckFunction = Callable[Concatenate[Context, ...], Awaitable[CheckOutput] | AsyncIterator[Result] | CheckOutput]
+"""Takes the Context positionally, plus any options as keyword-only parameters with defaults."""
 
 @dataclass(frozen=True)
 class Check:
@@ -52,10 +52,29 @@ class Check:
     name : str
     description : str | None
     func : CheckFunction
+    options : Mapping[str, inspect.Parameter]
+    """Configurable options, taken from the function's keyword-only parameters."""
 
-    async def run(self, ctx: Context) -> list[Result]:
+    def resolve_options(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate options from the config against the function's signature. Unset options keep their defaults."""
+        unknown = sorted(values.keys() - self.options.keys())
+        if unknown:
+            available = ", ".join(self.options) or "none"
+            raise ValueError(f"Unknown option(s) for check '{self.name}': {', '.join(unknown)} (available: {available}).")
+        resolved = {}
+        for key, value in values.items():
+            annotation = self.options[key].annotation
+            try:
+                resolved[key] = _coerce(value, annotation)
+            except TypeError:
+                raise ValueError(
+                    f"Option '{self.name}.{key}' must be {_type_name(annotation)}, got {value!r}."
+                ) from None
+        return resolved
+
+    async def run(self, ctx: Context, options: Mapping[str, Any] | None = None) -> list[Result]:
         try:
-            results = await self._collect(ctx)
+            results = await self._collect(ctx, options or {})
         except (httpx.HTTPError, OSError) as e:
             # Network trouble reaching the target (timeouts, refused connections, TLS errors) is a problem with the site.
             results = [Result(Status.FAIL, _describe(e))]
@@ -65,16 +84,41 @@ class Check:
             results = [Result(Status.ERROR, "Check produced no results.")]
         return [replace(result, check_name=self.name) for result in results]
 
-    async def _collect(self, ctx: Context) -> list[Result]:
+    async def _collect(self, ctx: Context, options: Mapping[str, Any]) -> list[Result]:
         if inspect.isasyncgenfunction(self.func):
-            return _as_list([result async for result in self.func(ctx)])
+            return _as_list([result async for result in self.func(ctx, **options)])
         if inspect.iscoroutinefunction(self.func):
-            return _as_list(await self.func(ctx))
-        return await asyncio.to_thread(lambda: _as_list(self.func(ctx)))
+            return _as_list(await self.func(ctx, **options))
+        return await asyncio.to_thread(lambda: _as_list(self.func(ctx, **options)))
 
 
 def _describe(e: Exception) -> str:
     return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
+def _coerce(value: Any, annotation: Any) -> Any:
+    """Return `value` if it matches `annotation`, converting where TOML is looser (int for float); else raise TypeError."""
+    if annotation is inspect.Parameter.empty or annotation is Any:
+        return value
+    if get_origin(annotation) is list:
+        if not isinstance(value, list):
+            raise TypeError
+        (item_annotation,) = get_args(annotation) or (Any,)
+        return [_coerce(item, item_annotation) for item in value]
+    if not isinstance(annotation, type):
+        return value  # Annotations we can't check (unions, literals, ...) are trusted.
+    # bool is a subclass of int, but `true` for a number option is almost certainly a mistake.
+    if isinstance(value, bool) and annotation is not bool:
+        raise TypeError
+    if annotation is float and isinstance(value, int):
+        return float(value)
+    if not isinstance(value, annotation):
+        raise TypeError
+    return value
+
+
+def _type_name(annotation: Any) -> str:
+    return annotation.__name__ if isinstance(annotation, type) and not get_origin(annotation) else str(annotation)
 
 
 def _as_list(output: Any) -> list[Result]:
@@ -95,8 +139,20 @@ _registry: dict[str, Check] = {}
 def check(func):
     if func.__name__ in _registry:
         raise ValueError(f"Duplicate check name '{func.__name__}'.")
-    _registry[func.__name__] = Check(func.__name__, inspect.getdoc(func), func)
+    _registry[func.__name__] = Check(func.__name__, inspect.getdoc(func), func, _option_parameters(func))
     return func
+
+
+def _option_parameters(func) -> dict[str, inspect.Parameter]:
+    """Every check takes the Context first; anything after it is an option and needs a default."""
+    params = list(inspect.signature(func).parameters.values())
+    ctx_param, option_params = (params[0], params[1:]) if params else (None, [])
+    if ctx_param is None or ctx_param.kind not in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+        raise TypeError(f"Check '{func.__name__}' must take the Context as its first positional parameter.")
+    for param in option_params:
+        if param.kind is not inspect.Parameter.KEYWORD_ONLY or param.default is inspect.Parameter.empty:
+            raise TypeError(f"Check '{func.__name__}': option '{param.name}' must be keyword-only with a default.")
+    return {param.name: param for param in option_params}
 
 
 def discover_checks(package: str = "owlet.checks") -> dict[str, Check]:

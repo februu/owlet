@@ -3,8 +3,6 @@ from urllib.parse import urlsplit, urlunsplit
 from owlet.check import Result, Status, check
 from owlet.context import Context
 
-SLOW_RESPONSE_SECONDS = 1.5
-
 
 @check
 async def http_status(ctx: Context) -> Result:
@@ -16,13 +14,13 @@ async def http_status(ctx: Context) -> Result:
 
 
 @check
-async def response_time(ctx: Context) -> Result:
-    """Page responds within SLOW_RESPONSE_SECONDS, including redirects."""
+async def response_time(ctx: Context, *, limit_seconds: float = 1.5) -> Result:
+    """Page responds within `limit_seconds`, including redirects."""
     response = await ctx.get(ctx.target)
     # Use httpx's own per-request timing: the response may be shared, so timing our await would measure a cache hit.
     elapsed = sum(r.elapsed.total_seconds() for r in [*response.history, response])
-    status = Status.PASS if elapsed < SLOW_RESPONSE_SECONDS else Status.FAIL
-    return Result(status, f"Responded in {elapsed:.2f}s (limit {SLOW_RESPONSE_SECONDS}s).")
+    status = Status.PASS if elapsed < limit_seconds else Status.FAIL
+    return Result(status, f"Responded in {elapsed:.2f}s (limit {limit_seconds}s).")
 
 
 @check

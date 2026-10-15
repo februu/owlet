@@ -7,14 +7,12 @@ from urllib.parse import urlsplit
 from owlet.check import Result, Status, check
 from owlet.context import Context
 
-MIN_DAYS_LEFT = 14
-WARN_DAYS_LEFT = 30
 CONNECT_TIMEOUT_SECONDS = 10
 
 
 @check
-async def ssl_certificate(ctx: Context) -> Result:
-    """Certificate verifies and has at least MIN_DAYS_LEFT days before expiry (warns under WARN_DAYS_LEFT)."""
+async def ssl_certificate(ctx: Context, *, fail_days: int = 14, warn_days: int = 30) -> Result:
+    """Certificate verifies and has at least `fail_days` days before expiry (warns under `warn_days`)."""
     parts = urlsplit(ctx.target)
     if parts.scheme != "https":
         return Result(Status.SKIP, "Site is not served over HTTPS.")
@@ -38,8 +36,8 @@ async def ssl_certificate(ctx: Context) -> Result:
     expires = datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), UTC)
     days_left = (expires - datetime.now(UTC)).days
     message = f"Certificate valid, expires {expires:%Y-%m-%d} ({days_left} days left)."
-    if days_left < MIN_DAYS_LEFT:
+    if days_left < fail_days:
         return Result(Status.FAIL, message)
-    if days_left < WARN_DAYS_LEFT:
+    if days_left < warn_days:
         return Result(Status.WARN, message)
     return Result(Status.PASS, message)

@@ -7,8 +7,6 @@ import httpx
 from owlet.check import Result, Status, check
 from owlet.context import Context
 
-MAX_LINKS = 50
-MAX_CONCURRENT_REQUESTS = 10
 LINK_ATTRIBUTES = {"a": "href", "link": "href", "img": "src", "script": "src"}
 SKIPPED_LINK_RELS = {"preconnect", "dns-prefetch"}
 
@@ -29,8 +27,8 @@ class _LinkParser(HTMLParser):
 
 
 @check
-async def broken_links(ctx: Context) -> Result:
-    """Links and resources on the page don't return 4xx/5xx (first MAX_LINKS unique URLs)."""
+async def broken_links(ctx: Context, *, max_links: int = 50, max_concurrent_requests: int = 10) -> Result:
+    """Links and resources on the page don't return 4xx/5xx (first `max_links` unique URLs)."""
     response = await ctx.get(ctx.target)
     parser = _LinkParser()
     parser.feed(response.text)
@@ -40,9 +38,9 @@ async def broken_links(ctx: Context) -> Result:
         absolute = urldefrag(urljoin(str(response.url), href)).url
         if absolute.startswith(("http://", "https://")) and absolute not in links:
             links.append(absolute)
-    links = links[:MAX_LINKS]
+    links = links[:max_links]
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+    semaphore = asyncio.Semaphore(max_concurrent_requests)
     broken = await asyncio.gather(*(_find_problem(ctx, semaphore, link) for link in links))
     problems = [problem for problem in broken if problem]
 

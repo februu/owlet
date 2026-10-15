@@ -1,5 +1,6 @@
 import asyncio
 from enum import IntEnum
+from typing import Any
 
 import httpx
 from rich import print
@@ -39,13 +40,14 @@ class Owlet:
         self._active_checks: list[str] = list(dict.fromkeys(config.active_checks))
         self._available_checks: dict[str, Check] = discover_checks()
         self._validate_required_checks_are_available(self._active_checks, self._available_checks)
+        self._check_options: dict[str, dict[str, Any]] = self._resolve_check_options(config.check_options)
 
 
     async def run(self) -> list[Result]:
         async with httpx.AsyncClient() as http_client:
             context = Context(target=self._target, http_client=http_client)
             async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._available_checks[name].run(context)) for name in self._active_checks]
+                tasks = [tg.create_task(self._available_checks[name].run(context, self._check_options.get(name))) for name in self._active_checks]
             results: list[Result] = [result for task in tasks for result in task.result()]
 
             for result in results:
@@ -56,6 +58,10 @@ class Owlet:
     def exit_code(self, results: list[Result]) -> ExitCode:
         failing = {Status.FAIL, Status.ERROR} | ({Status.WARN} if self._strict else set())
         return ExitCode.CHECKS_FAILED if any(result.status in failing for result in results) else ExitCode.OK
+
+    def _resolve_check_options(self, check_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        self._validate_required_checks_are_available(list(check_options), self._available_checks)
+        return {name: self._available_checks[name].resolve_options(options) for name, options in check_options.items()}
 
     def _validate_required_checks_are_available(self, required_checks : list[str], available_checks : dict[str, Check]):
         missing = [check for check in required_checks if check not in available_checks]
