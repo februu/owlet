@@ -8,7 +8,7 @@ from owlet.context import Context
 async def robots_txt(ctx: Context) -> Result:
     """/robots.txt exists and is not empty."""
     robots_url = urljoin(ctx.target, "/robots.txt")
-    response = await ctx.http_client.get(robots_url, follow_redirects=True)
+    response = await ctx.get(robots_url)
     if not response.is_success:
         return Result(False, f"{robots_url} returned status code {response.status_code}.")
     if not response.text.strip():
@@ -20,7 +20,7 @@ async def robots_txt(ctx: Context) -> Result:
 async def sitemap(ctx: Context) -> Result:
     """A sitemap is listed in robots.txt or served at /sitemap.xml."""
     sitemap_urls = []
-    robots = await ctx.http_client.get(urljoin(ctx.target, "/robots.txt"), follow_redirects=True)
+    robots = await ctx.get(urljoin(ctx.target, "/robots.txt"))
     if robots.is_success:
         for line in robots.text.splitlines():
             key, _, value = line.partition(":")
@@ -30,7 +30,7 @@ async def sitemap(ctx: Context) -> Result:
         sitemap_urls.append(urljoin(ctx.target, "/sitemap.xml"))
 
     sitemap_url = sitemap_urls[0]
-    response = await ctx.http_client.get(sitemap_url, follow_redirects=True)
+    response = await ctx.get(sitemap_url)
     if not response.is_success:
         return Result(False, f"{sitemap_url} returned status code {response.status_code}.")
     # Sitemaps may be gzipped (.xml.gz), which we can't inspect as text, so accept them as-is.

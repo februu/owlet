@@ -31,7 +31,7 @@ class _LinkParser(HTMLParser):
 @check
 async def broken_links(ctx: Context) -> Result:
     """Links and resources on the page don't return 4xx/5xx (first MAX_LINKS unique URLs)."""
-    response = await ctx.http_client.get(ctx.target, follow_redirects=True)
+    response = await ctx.get(ctx.target)
     parser = _LinkParser()
     parser.feed(response.text)
 
@@ -57,7 +57,7 @@ async def _find_problem(ctx: Context, semaphore: asyncio.Semaphore, link: str) -
             response = await ctx.http_client.head(link, follow_redirects=True)
             # Some servers don't support HEAD or reject it; retry with GET before calling the link broken.
             if response.status_code in (403, 405, 501):
-                response = await ctx.http_client.get(link, follow_redirects=True)
+                response = await ctx.get(link)
         except httpx.HTTPError as e:
             return f"    {link} ({type(e).__name__})"
     if response.is_client_error or response.is_server_error:

@@ -13,7 +13,7 @@ def _shorten(value: str) -> str:
 @check
 async def security_headers(ctx: Context) -> AsyncIterator[Result]:
     """Common security headers are set, one result per header."""
-    response = await ctx.http_client.get(ctx.target, follow_redirects=True)
+    response = await ctx.get(ctx.target)
     headers = response.headers
     csp = headers.get("Content-Security-Policy", "")
 
