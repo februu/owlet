@@ -1,7 +1,7 @@
 [project]
 name = "owlet"
 version = "0.1.0"
-description = "Add your description here"
+description = "Owlet is a small async website health checker configured from one TOML file."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
