@@ -4,7 +4,7 @@ from urllib.parse import urldefrag, urljoin
 
 import httpx
 
-from owlet.check import Result, check
+from owlet.check import Result, Status, check
 from owlet.context import Context
 
 MAX_LINKS = 50
@@ -47,8 +47,8 @@ async def broken_links(ctx: Context) -> Result:
     problems = [problem for problem in broken if problem]
 
     if problems:
-        return Result(False, f"{len(problems)} of {len(links)} links broken:\n" + "\n".join(problems))
-    return Result(True, f"All {len(links)} links OK.")
+        return Result(Status.FAIL, f"{len(problems)} of {len(links)} links broken:\n" + "\n".join(problems))
+    return Result(Status.PASS, f"All {len(links)} links OK.")
 
 
 async def _find_problem(ctx: Context, semaphore: asyncio.Semaphore, link: str) -> str | None:

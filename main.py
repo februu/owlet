@@ -1,12 +1,21 @@
 import asyncio
+import sys
+import tomllib
 
-from owlet.owlet import Owlet
+from rich import print
+
+from owlet.owlet import ExitCode, Owlet
 
 
-def main():
-    owlet = Owlet("config.toml")
-    asyncio.run(owlet.run())
+def main() -> ExitCode:
+    try:
+        owlet = Owlet("config.toml")
+    except (OSError, tomllib.TOMLDecodeError, ValueError) as e:
+        print(f"[red]Error:[/] {e}", file=sys.stderr)
+        return ExitCode.USAGE_ERROR
+    results = asyncio.run(owlet.run())
+    return owlet.exit_code(results)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

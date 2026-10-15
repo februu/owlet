@@ -1,6 +1,6 @@
 from urllib.parse import urljoin
 
-from owlet.check import Result, check
+from owlet.check import Result, Status, check
 from owlet.context import Context
 
 
@@ -10,10 +10,10 @@ async def robots_txt(ctx: Context) -> Result:
     robots_url = urljoin(ctx.target, "/robots.txt")
     response = await ctx.get(robots_url)
     if not response.is_success:
-        return Result(False, f"{robots_url} returned status code {response.status_code}.")
+        return Result(Status.FAIL, f"{robots_url} returned status code {response.status_code}.")
     if not response.text.strip():
-        return Result(False, f"{robots_url} is empty.")
-    return Result(True, f"Found {robots_url}.")
+        return Result(Status.FAIL, f"{robots_url} is empty.")
+    return Result(Status.PASS, f"Found {robots_url}.")
 
 
 @check
@@ -32,8 +32,9 @@ async def sitemap(ctx: Context) -> Result:
     sitemap_url = sitemap_urls[0]
     response = await ctx.get(sitemap_url)
     if not response.is_success:
-        return Result(False, f"{sitemap_url} returned status code {response.status_code}.")
+        # A missing sitemap hurts discoverability but isn't broken; an invalid one is.
+        return Result(Status.WARN, f"{sitemap_url} returned status code {response.status_code}.")
     # Sitemaps may be gzipped (.xml.gz), which we can't inspect as text, so accept them as-is.
     if sitemap_url.endswith(".gz") or "<urlset" in response.text or "<sitemapindex" in response.text:
-        return Result(True, f"Found {sitemap_url}.")
-    return Result(False, f"{sitemap_url} does not look like a sitemap.")
+        return Result(Status.PASS, f"Found {sitemap_url}.")
+    return Result(Status.FAIL, f"{sitemap_url} does not look like a sitemap.")

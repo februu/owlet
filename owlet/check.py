@@ -3,17 +3,33 @@ import inspect
 import pkgutil
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from importlib import import_module
 from typing import Any
 
+import httpx
+
 from owlet.context import Context
+
+
+class Status(StrEnum):
+    PASS = "PASS"
+    """The check passed."""
+    WARN = "WARN"
+    """Worth attention but not a failure, unless running in strict mode."""
+    FAIL = "FAIL"
+    """The check found a problem with the target."""
+    SKIP = "SKIP"
+    """The check wasn't performed on this target."""
+    ERROR = "ERROR"
+    """The check itself crashed or misbehaved, as opposed to finding a problem with the target."""
 
 
 @dataclass(frozen=True)
 class Result:
     """Represents the result of a check."""
 
-    success : bool
+    status : Status
     content : str | None = None
     name : str | None = None
     """Optional label for one of several results from the same check, e.g. a header name."""
@@ -40,11 +56,13 @@ class Check:
     async def run(self, ctx: Context) -> list[Result]:
         try:
             results = await self._collect(ctx)
+        except (httpx.HTTPError, OSError) as e:
+            # Network trouble reaching the target (timeouts, refused connections, TLS errors) is a problem with the site.
+            results = [Result(Status.FAIL, _describe(e))]
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
-            message = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-            results = [Result(False, message)]
+            results = [Result(Status.ERROR, _describe(e))]
         if not results:
-            results = [Result(False, "Check produced no results.")]
+            results = [Result(Status.ERROR, "Check produced no results.")]
         return [replace(result, check_name=self.name) for result in results]
 
     async def _collect(self, ctx: Context) -> list[Result]:
@@ -53,6 +71,10 @@ class Check:
         if inspect.iscoroutinefunction(self.func):
             return _as_list(await self.func(ctx))
         return await asyncio.to_thread(lambda: _as_list(self.func(ctx)))
+
+
+def _describe(e: Exception) -> str:
+    return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
 
 
 def _as_list(output: Any) -> list[Result]:
