@@ -9,10 +9,11 @@ async def robots_txt(ctx: Context) -> Result:
     """/robots.txt exists and is not empty."""
     robots_url = urljoin(ctx.target, "/robots.txt")
     response = await ctx.get(robots_url)
+    # A missing or empty robots.txt lets crawlers index everything, which is rarely broken but worth knowing.
     if not response.is_success:
-        return Result(Status.FAIL, f"{robots_url} returned status code {response.status_code}.")
+        return Result(Status.WARN, f"{robots_url} returned status code {response.status_code}.")
     if not response.text.strip():
-        return Result(Status.FAIL, f"{robots_url} is empty.")
+        return Result(Status.WARN, f"{robots_url} is empty.")
     return Result(Status.PASS, f"Found {robots_url}.")
 
 

@@ -89,7 +89,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 | `https_redirect` | The `http://` version of the site redirects to `https://`. | |
 | `ssl_certificate` | The certificate verifies and isn't close to expiry. `FAIL` under `fail_days`, `WARN` under `warn_days`, `SKIP` for `http://` targets. | `fail_days` (14), `warn_days` (30) |
 | `security_headers` | HSTS, CSP, `X-Content-Type-Options`, `Referrer-Policy` and clickjacking protection, one result per header. | |
-| `robots_txt` | `/robots.txt` exists and isn't empty. | |
+| `robots_txt` | `/robots.txt` exists and isn't empty. `WARN` if missing or empty. | |
 | `sitemap` | A sitemap is listed in `robots.txt` or served at `/sitemap.xml`. `WARN` if missing, `FAIL` if invalid. | |
 | `broken_links` | Links and resources on the page don't return 4xx or 5xx. | `max_links` (50), `max_concurrent_requests` (10) |
 
