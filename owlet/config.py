@@ -3,6 +3,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class ConfigError(ValueError):
+    """The config is invalid: unreadable file, bad TOML, unknown keys, checks or options, or values of the wrong type."""
+
+
 @dataclass(frozen=True)
 class Config:
     """Configuration for the application."""
@@ -22,16 +26,21 @@ KNOWN_KEYS = {"target", "active_checks", "strict", "checks"}
 
 def load_config(file_path: str) -> Config:
     """Load configuration from a TOML file."""
-    with open(file_path, "rb") as f:
-        data = tomllib.load(f)
+    try:
+        with open(file_path, "rb") as f:
+            data = tomllib.load(f)
+    except OSError as e:
+        raise ConfigError(f"Can't read config file '{file_path}': {e.strerror}.") from e
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"Invalid TOML in '{file_path}': {e}.") from e
 
     unknown = sorted(data.keys() - KNOWN_KEYS)
     if unknown:
-        raise ValueError(f"Unknown config key(s): {', '.join(unknown)}.")
+        raise ConfigError(f"Unknown config key(s): {', '.join(unknown)}.")
     check_options = data.get("checks", {})
     for name, options in check_options.items():
         if not isinstance(options, dict):
-            raise ValueError(f"Options for check '{name}' must be a [checks.{name}] table.")
+            raise ConfigError(f"Options for check '{name}' must be a [checks.{name}] table.")
 
     return Config(
         target=data.get("target", ""),

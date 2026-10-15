@@ -6,7 +6,7 @@ import httpx
 from rich import print
 
 from owlet.check import Check, Result, Status, discover_checks
-from owlet.config import Config, load_config
+from owlet.config import Config, ConfigError, load_config
 from owlet.context import Context
 
 
@@ -66,4 +66,4 @@ class Owlet:
     def _validate_required_checks_are_available(self, required_checks : list[str], available_checks : dict[str, Check]):
         missing = [check for check in required_checks if check not in available_checks]
         if missing:
-            raise ValueError(f"Unknown checks: {', '.join(sorted(missing))}")
+            raise ConfigError(f"Unknown checks: {', '.join(sorted(missing))}")

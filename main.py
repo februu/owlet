@@ -1,18 +1,18 @@
 import asyncio
 import sys
-import tomllib
 
 from rich import print
 from rich.markup import escape
 
+from owlet.config import ConfigError
 from owlet.owlet import ExitCode, Owlet
 
 
 def main() -> ExitCode:
     try:
         owlet = Owlet("config.toml")
-    except (OSError, tomllib.TOMLDecodeError, ValueError) as e:
-        print(f"[red]Error:[/] {escape(str(e))}", file=sys.stderr)
+    except ConfigError as e:
+        print(f"[red]Config error:[/] {escape(str(e))}", file=sys.stderr)
         return ExitCode.USAGE_ERROR
     results = asyncio.run(owlet.run())
     return owlet.exit_code(results)

@@ -9,6 +9,7 @@ from typing import Any, Concatenate, get_args, get_origin
 
 import httpx
 
+from owlet.config import ConfigError
 from owlet.context import Context
 
 
@@ -60,14 +61,14 @@ class Check:
         unknown = sorted(values.keys() - self.options.keys())
         if unknown:
             available = ", ".join(self.options) or "none"
-            raise ValueError(f"Unknown option(s) for check '{self.name}': {', '.join(unknown)} (available: {available}).")
+            raise ConfigError(f"Unknown option(s) for check '{self.name}': {', '.join(unknown)} (available: {available}).")
         resolved = {}
         for key, value in values.items():
             annotation = self.options[key].annotation
             try:
                 resolved[key] = _coerce(value, annotation)
             except TypeError:
-                raise ValueError(
+                raise ConfigError(
                     f"Option '{self.name}.{key}' must be {_type_name(annotation)}, got {value!r}."
                 ) from None
         return resolved
