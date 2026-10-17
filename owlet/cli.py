@@ -179,6 +179,9 @@ def _starter_config(target: str, checks: list[Check]) -> str:
         "# Treat warnings as failures when deciding the exit code.",
         "strict = false",
         "",
+        "# How long one check may run before it's stopped and reported as FAIL.",
+        "check_timeout_seconds = 30.0",
+        "",
         "active_checks = [",
     ]
     for group, group_checks in groupby(checks, key=_group):

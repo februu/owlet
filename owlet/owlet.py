@@ -29,6 +29,7 @@ class Owlet:
     def __init__(self, config: Config):
         self._target: str = config.target
         self._strict: bool = config.strict
+        self._check_timeout: float = config.check_timeout_seconds
         self._active_checks: list[str] = list(dict.fromkeys(config.active_checks))
         self._available_checks: dict[str, Check] = discover_checks()
         self._validate_required_checks_are_available(self._active_checks, self._available_checks)
@@ -41,8 +42,14 @@ class Owlet:
     async def run(self) -> list[Result]:
         async with httpx.AsyncClient() as http_client:
             context = Context(target=self._target, http_client=http_client)
-            async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._available_checks[name].run(context, self._check_options.get(name))) for name in self._active_checks]
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    tasks = [
+                        tg.create_task(self._available_checks[name].run(context, self._check_options.get(name), self._check_timeout))
+                        for name in self._active_checks
+                    ]
+            finally:
+                await context.close()
             return [result for task in tasks for result in task.result()]
 
     def is_failure(self, result: Result) -> bool:

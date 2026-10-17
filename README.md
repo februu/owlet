@@ -66,6 +66,7 @@ Running `owlet` with no arguments shows the help.
 | `target` | string | | Required. `http://` or `https://` URL of the site to check. |
 | `active_checks` | list of strings | | Checks to run, in output order. Duplicates are ignored. Must list at least one check, unless you pass `--only`. |
 | `strict` | bool | `false` | Treat `WARN` as a failure when deciding the exit code. |
+| `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
 
 ```toml
@@ -101,7 +102,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 |---|---|
 | `PASS` | The check passed. |
 | `WARN` | Worth attention, but not a failure unless `strict = true`. |
-| `FAIL` | The check found a problem with the site. Network errors reaching the site (timeouts, refused connections, TLS errors) count as `FAIL`. |
+| `FAIL` | The check found a problem with the site. Network errors reaching the site (timeouts, refused connections, TLS errors) count as `FAIL`, and so does a check that runs longer than `check_timeout_seconds`. |
 | `SKIP` | The check doesn't apply to this target, such as TLS checks on an `http://` site. Never fails a run. |
 | `ERROR` | The check itself crashed or returned something invalid. This points at a bug in owlet, not the site. |
 

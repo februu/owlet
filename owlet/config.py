@@ -19,11 +19,13 @@ class Config:
     """List of checks to run."""
     strict: bool = False
     """Treat warnings as failures when deciding the exit code."""
+    check_timeout_seconds: float = 30.0
+    """How long one check may run before it's stopped and reported as FAIL."""
     check_options: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Per-check options from the [checks.<name>] tables, keyed by check name."""
 
 
-KNOWN_KEYS = {"target", "active_checks", "strict", "checks"}
+KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks"}
 
 
 def load_config(file_path: Path) -> Config:
@@ -57,6 +59,11 @@ def load_config(file_path: Path) -> Config:
     if not isinstance(strict, bool):
         raise ConfigError(f"'strict' must be true or false, got {strict!r}.")
 
+    check_timeout_seconds = data.get("check_timeout_seconds", Config.check_timeout_seconds)
+    # bool is a subclass of int, but `true` for a number is almost certainly a mistake.
+    if isinstance(check_timeout_seconds, bool) or not isinstance(check_timeout_seconds, (int, float)) or not check_timeout_seconds > 0:
+        raise ConfigError(f"'check_timeout_seconds' must be a number greater than 0, got {check_timeout_seconds!r}.")
+
     check_options = data.get("checks", {})
     if not isinstance(check_options, dict):
         raise ConfigError("'checks' must be a table of [checks.<name>] tables.")
@@ -68,5 +75,6 @@ def load_config(file_path: Path) -> Config:
         target=target,
         active_checks=active_checks,
         strict=strict,
+        check_timeout_seconds=float(check_timeout_seconds),
         check_options=check_options,
     )

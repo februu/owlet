@@ -90,12 +90,15 @@ class Check:
                 raise RuntimeError(f"Check '{self.name}': validate crashed with {_describe(e)}") from e
         return resolved
 
-    async def run(self, ctx: Context, options: Mapping[str, Any] | None = None) -> list[Result]:
+    async def run(self, ctx: Context, options: Mapping[str, Any] | None = None, timeout: float | None = None) -> list[Result]:
+        deadline = asyncio.timeout(timeout)
         try:
-            results = await self._collect(ctx, options or {})
+            async with deadline:
+                results = await self._collect(ctx, options or {})
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
             # Network trouble reaching the target (timeouts, refused connections, TLS errors, malformed URLs) is a problem with the site.
-            results = [Result(Status.FAIL, _describe(e))]
+            message = f"Timed out after {timeout:g}s." if deadline.expired() else _describe(e)
+            results = [Result(Status.FAIL, message)]
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
             results = [Result(Status.ERROR, _describe(e))]
         if not results:
