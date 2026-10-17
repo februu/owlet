@@ -43,6 +43,8 @@ def load_config(file_path: Path) -> Config:
     target = data.get("target")
     if not isinstance(target, str) or not target.strip():
         raise ConfigError("'target' must be set to the URL of the site to check.")
+    if target != target.strip():
+        raise ConfigError(f"'target' must not start or end with whitespace, got {target!r}.")
     parts = urlsplit(target)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ConfigError(f"'target' must be an http:// or https:// URL, got {target!r}.")
