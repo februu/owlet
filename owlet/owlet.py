@@ -50,7 +50,7 @@ class Owlet:
 
     def _resolve_check_options(self, check_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         self._validate_required_checks_are_available(list(check_options), self._available_checks)
-        return {name: self._available_checks[name].resolve_options(options) for name, options in check_options.items()}
+        return {name: check.resolve_options(check_options.get(name, {})) for name, check in self._available_checks.items()}
 
     def _validate_required_checks_are_available(self, required_checks : list[str], available_checks : dict[str, Check]):
         missing = [check for check in required_checks if check not in available_checks]

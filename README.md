@@ -54,7 +54,7 @@ Running `owlet` with no arguments shows the help.
 |---|---|
 | `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
-| `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode), followed by the count per status. Prints nothing if no result fails, so cron only emails you about problems. With `--json`, it still prints the document, with an empty `results` array. |
+| `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode). If any result fails, the count per status follows them. If none fail, it prints nothing at all, not even the counts, so cron only emails you about problems. With `--json`, it always prints the document, with an empty `results` array if none fail. |
 | `--json` | Prints results as JSON instead of a table. See [JSON output](#json-output). With `--quiet`, `results` lists only the failing results. |
 | `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
 | `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
@@ -154,7 +154,7 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
 - **Options:** keyword-only parameters after `*`, each with a default. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
 - **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`.
-- **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it when the config loads, so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
+- **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it for every available check when the config loads, even checks that aren't in `active_checks` or have no `[checks.<name>]` table (then with the defaults), so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
 
   ```python
   def _validate_has_title(*, min_length: int) -> None:
