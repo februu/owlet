@@ -37,6 +37,13 @@ class Result:
     check_name : str = ""
     """Filled in by the runner with the name of the check that produced this result."""
 
+    def __post_init__(self):
+        try:
+            status = Status(self.status)
+        except ValueError:
+            raise ValueError(f"Invalid result status {self.status!r}, expected one of {', '.join(Status)}.") from None
+        object.__setattr__(self, "status", status)
+
     @property
     def label(self) -> str:
         return f"{self.check_name} - {self.name}" if self.name else self.check_name
