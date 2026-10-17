@@ -14,7 +14,7 @@ from rich.table import Table
 from rich.text import Text
 
 from owlet.check import Check, Result, Status, discover_checks
-from owlet.config import ConfigError, load_config
+from owlet.config import Config, ConfigError, load_config
 from owlet.owlet import ExitCode, Owlet
 
 STATUS_STYLES = {
@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
     parser.add_argument("-q", "--quiet", action="store_true", help="print only results that fail the run, and nothing if none do")
+    parser.add_argument("--json", action="store_true", help="print results as JSON instead of a table")
     parser.add_argument("--list-checks", action="store_true", help="list available checks and their options")
     parser.add_argument("--init", metavar="TARGET", help="print a starter config for TARGET")
     return parser
@@ -54,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.config is None:
         parser.print_help()
         return ExitCode.OK
-    return _run(args.config, args.only, args.strict, args.quiet)
+    return _run(args.config, args.only, args.strict, args.quiet, args.json)
 
 
 def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown: list[str]) -> None:
@@ -71,11 +72,11 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
     if modes and args.config:
         hint = " Redirect its output instead: owlet --init TARGET > config.toml" if args.init is not None else ""
         parser.error(f"{modes[0]} doesn't take a config file.{hint}")
-    if not args.config and (args.only or args.strict or args.quiet):
-        parser.error("--only, --strict and --quiet need a config file to run")
+    if not args.config and (args.only or args.strict or args.quiet or args.json):
+        parser.error("--only, --strict, --quiet and --json need a config file to run")
 
 
-def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool) -> ExitCode:
+def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, as_json: bool) -> ExitCode:
     try:
         settings = load_config(config)
         settings = replace(
@@ -89,10 +90,13 @@ def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool) -> Exi
         return ExitCode.USAGE_ERROR
 
     results = asyncio.run(owlet.run())
+    exit_code = owlet.exit_code(results)
     shown = [result for result in results if owlet.is_failure(result)] if quiet else results
-    if shown:
+    if as_json:
+        print(_results_json(settings, owlet, shown, results, exit_code))
+    elif shown:
         _print_results(shown, results)
-    return owlet.exit_code(results)
+    return exit_code
 
 
 def _list_checks() -> ExitCode:
@@ -129,6 +133,30 @@ def _print_results(shown: list[Result], results: list[Result]) -> None:
 
     counts = Counter(result.status for result in results)
     print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]))
+
+
+def _results_json(settings: Config, owlet: Owlet, shown: list[Result], results: list[Result], exit_code: ExitCode) -> str:
+    """The `shown` results as JSON, with a count per status across all `results`."""
+    counts = Counter(result.status for result in results)
+    return json.dumps(
+        {
+            "target": settings.target,
+            "strict": settings.strict,
+            "exit_code": int(exit_code),
+            "summary": {status: counts[status] for status in Status},
+            "results": [
+                {
+                    "check": result.check_name,
+                    "name": result.name,
+                    "status": result.status,
+                    "content": result.content,
+                    "fails_run": owlet.is_failure(result),
+                }
+                for result in shown
+            ],
+        },
+        indent=2,
+    )
 
 
 def _starter_config(target: str, checks: list[Check]) -> str:

@@ -17,10 +17,10 @@ _Owlet is a small async website health checker configured from one TOML file._
 - Checks run concurrently and share GET responses, so a page several checks need is downloaded once
 - New checks are picked up automatically: write a function in `owlet/checks/` and decorate it with `@check`
 - A CLI to run checks, list them with their options, and generate a starter config
+- JSON output for scripts and dashboards
 
 **Upcoming features:**
 
-- JSON output
 - More checks: DNS and email records, cookie flags, exposed files, SEO basics
 
 _Suggestions are welcome!_
@@ -45,7 +45,7 @@ uv run owlet config.toml
 ## Cli
 
 ```
-usage: owlet [-h] [--version] [--only CHECK] [--strict] [-q] [--list-checks] [--init TARGET] [config]
+usage: owlet [-h] [--version] [--only CHECK] [--strict] [-q] [--json] [--list-checks] [--init TARGET] [config]
 ```
 
 Running `owlet` with no arguments shows the help.
@@ -54,7 +54,8 @@ Running `owlet` with no arguments shows the help.
 |---|---|
 | `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
-| `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode), followed by the count per status. Prints nothing if no result fails, so cron only emails you about problems. |
+| `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode), followed by the count per status. Prints nothing if no result fails, so cron only emails you about problems. With `--json`, it still prints the document, with an empty `results` array. |
+| `--json` | Prints results as JSON instead of a table. See [JSON output](#json-output). With `--quiet`, `results` lists only the failing results. |
 | `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
 | `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
 
@@ -109,6 +110,28 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 | `0` | No failures. Warnings and skips are allowed unless `strict = true`. |
 | `1` | At least one `FAIL` or `ERROR`, or a `WARN` in strict mode. |
 | `2` | Invalid command-line arguments, or a missing or invalid config. |
+
+### JSON output
+
+`--json` prints one JSON document to stdout. Exit codes are the same as for the table. Config and argument errors still print as text to stderr, with exit code 2.
+
+```json
+{
+  "target": "https://example.com",
+  "strict": false,
+  "exit_code": 1,
+  "summary": { "PASS": 1, "WARN": 1, "FAIL": 1, "SKIP": 0, "ERROR": 0 },
+  "results": [
+    { "check": "http_status", "name": null, "status": "PASS", "content": "Got status code 200.", "fails_run": false },
+    { "check": "robots_txt", "name": null, "status": "WARN", "content": "https://example.com/robots.txt returned status code 404.", "fails_run": false },
+    { "check": "security_headers", "name": "Content-Security-Policy", "status": "FAIL", "content": "Header missing.", "fails_run": true }
+  ]
+}
+```
+
+- `summary` always has all five statuses, including those with a count of 0. It counts every result, even with `--quiet`.
+- `name` is `null` unless the check produces several results, like `security_headers` does per header.
+- `fails_run` says whether that result makes the run fail, with strict mode already applied. To get only the failures, use `--quiet`, which leaves only results with `fails_run: true`.
 
 ## Writing your own check
 
