@@ -41,9 +41,12 @@ class Owlet:
                 tasks = [tg.create_task(self._available_checks[name].run(context, self._check_options.get(name))) for name in self._active_checks]
             return [result for task in tasks for result in task.result()]
 
+    def is_failure(self, result: Result) -> bool:
+        """Whether this result fails the run: FAIL and ERROR always, WARN in strict mode."""
+        return result.status in (Status.FAIL, Status.ERROR) or (self._strict and result.status is Status.WARN)
+
     def exit_code(self, results: list[Result]) -> ExitCode:
-        failing = {Status.FAIL, Status.ERROR} | ({Status.WARN} if self._strict else set())
-        return ExitCode.CHECKS_FAILED if any(result.status in failing for result in results) else ExitCode.OK
+        return ExitCode.CHECKS_FAILED if any(self.is_failure(result) for result in results) else ExitCode.OK
 
     def _resolve_check_options(self, check_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         self._validate_required_checks_are_available(list(check_options), self._available_checks)

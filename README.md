@@ -45,7 +45,7 @@ uv run owlet config.toml
 ## Cli
 
 ```
-usage: owlet [-h] [--version] [--only CHECK] [--strict] [--list-checks] [--init TARGET] [config]
+usage: owlet [-h] [--version] [--only CHECK] [--strict] [-q] [--list-checks] [--init TARGET] [config]
 ```
 
 Running `owlet` with no arguments shows the help.
@@ -54,6 +54,7 @@ Running `owlet` with no arguments shows the help.
 |---|---|
 | `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
+| `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode), followed by the count per status. Prints nothing if no result fails, so cron only emails you about problems. |
 | `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
 | `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
 

@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {package['Version']}")
     parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
+    parser.add_argument("-q", "--quiet", action="store_true", help="print only results that fail the run, and nothing if none do")
     parser.add_argument("--list-checks", action="store_true", help="list available checks and their options")
     parser.add_argument("--init", metavar="TARGET", help="print a starter config for TARGET")
     return parser
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.config is None:
         parser.print_help()
         return ExitCode.OK
-    return _run(args.config, args.only, args.strict)
+    return _run(args.config, args.only, args.strict, args.quiet)
 
 
 def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown: list[str]) -> None:
@@ -70,11 +71,11 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
     if modes and args.config:
         hint = " Redirect its output instead: owlet --init TARGET > config.toml" if args.init is not None else ""
         parser.error(f"{modes[0]} doesn't take a config file.{hint}")
-    if not args.config and (args.only or args.strict):
-        parser.error("--only and --strict need a config file to run")
+    if not args.config and (args.only or args.strict or args.quiet):
+        parser.error("--only, --strict and --quiet need a config file to run")
 
 
-def _run(config: Path, only: list[str] | None, strict: bool) -> ExitCode:
+def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool) -> ExitCode:
     try:
         settings = load_config(config)
         settings = replace(
@@ -88,7 +89,9 @@ def _run(config: Path, only: list[str] | None, strict: bool) -> ExitCode:
         return ExitCode.USAGE_ERROR
 
     results = asyncio.run(owlet.run())
-    _print_results(results)
+    shown = [result for result in results if owlet.is_failure(result)] if quiet else results
+    if shown:
+        _print_results(shown, results)
     return owlet.exit_code(results)
 
 
@@ -114,12 +117,13 @@ def _group(check: Check) -> str:
     return check.func.__module__.rpartition(".")[2]
 
 
-def _print_results(results: list[Result]) -> None:
+def _print_results(shown: list[Result], results: list[Result]) -> None:
+    """Print the `shown` results as a table, then a count per status across all `results`."""
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column(no_wrap=True)
     table.add_column()
-    for result in results:
+    for result in shown:
         table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(result.content or ""))
     console.print(table)
 
