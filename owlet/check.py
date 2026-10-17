@@ -1,8 +1,17 @@
 import asyncio
 import inspect
+import json
 import pkgutil
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass, replace
+import time
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib import import_module
 from typing import Any, Concatenate, get_args, get_origin
@@ -31,11 +40,18 @@ class Result:
     """Represents the result of a check."""
 
     status : Status
-    content : str | None = None
+    summary : str
+    """One line saying what the check found. Anything longer goes in `details`."""
     name : str | None = None
     """Optional label for one of several results from the same check, e.g. a header name."""
+    details : Sequence[str] = ()
+    """Extra lines for people, e.g. each broken link. Printed indented under `summary`."""
+    data : Mapping[str, Any] = field(default_factory=dict)
+    """Values for scripts, e.g. {"days_left": 69}. Must be JSON-serializable; only shown in JSON output."""
     check_name : str = ""
     """Filled in by the runner with the name of the check that produced this result."""
+    duration_seconds : float | None = None
+    """Filled in by the runner with how long the check took. Every result from one check shares it."""
 
     def __post_init__(self):
         try:
@@ -43,6 +59,19 @@ class Result:
         except ValueError:
             raise ValueError(f"Invalid result status {self.status!r}, expected one of {', '.join(Status)}.") from None
         object.__setattr__(self, "status", status)
+        if not isinstance(self.summary, str) or not self.summary.strip():
+            raise TypeError(f"Result summary must be a non-empty string, got {self.summary!r}.")
+        if "\n" in self.summary:
+            raise ValueError(f"Result summary must be one line; put the rest in details: {self.summary!r}.")
+        if isinstance(self.details, str) or not all(isinstance(line, str) for line in self.details):
+            raise TypeError(f"Result details must be a list of strings, got {self.details!r}.")
+        object.__setattr__(self, "details", tuple(self.details))
+        # Fail inside the check, where it becomes an ERROR result, rather than when the JSON is printed.
+        try:
+            json.dumps(self.data)
+        except (TypeError, ValueError) as e:
+            raise TypeError(f"Result data must be JSON-serializable: {e}") from None
+        object.__setattr__(self, "data", dict(self.data))
 
     @property
     def label(self) -> str:
@@ -92,18 +121,20 @@ class Check:
 
     async def run(self, ctx: Context, options: Mapping[str, Any] | None = None, timeout: float | None = None) -> list[Result]:
         deadline = asyncio.timeout(timeout)
+        started = time.perf_counter()
         try:
             async with deadline:
                 results = await self._collect(ctx, options or {})
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
             # Network trouble reaching the target (timeouts, refused connections, TLS errors, malformed URLs) is a problem with the site.
             message = f"Timed out after {timeout:g}s." if deadline.expired() else _describe(e)
-            results = [Result(Status.FAIL, message)]
+            results = [_text_result(Status.FAIL, message)]
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
-            results = [Result(Status.ERROR, _describe(e))]
+            results = [_text_result(Status.ERROR, _describe(e))]
         if not results:
             results = [Result(Status.ERROR, "Check produced no results.")]
-        return [replace(result, check_name=self.name) for result in results]
+        duration = time.perf_counter() - started
+        return [replace(result, check_name=self.name, duration_seconds=duration) for result in results]
 
     async def _collect(self, ctx: Context, options: Mapping[str, Any]) -> list[Result]:
         if inspect.isasyncgenfunction(self.func):
@@ -115,6 +146,12 @@ class Check:
 
 def _describe(e: Exception) -> str:
     return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
+def _text_result(status: Status, text: str) -> Result:
+    """A Result from text we don't control, like an exception message: first line as summary, the rest as details."""
+    summary, *details = [line for line in text.splitlines() if line.strip()] or ["(no message)"]
+    return Result(status, summary, details=details)
 
 
 def _coerce(value: Any, annotation: Any) -> Any:

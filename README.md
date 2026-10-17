@@ -120,18 +120,29 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 
 ```json
 {
+  "owlet_version": "0.1.0",
   "target": "https://example.com",
   "strict": false,
+  "started_at": "2026-10-18T09:30:00+00:00",
+  "duration_seconds": 0.734,
   "exit_code": 1,
-  "summary": { "PASS": 1, "WARN": 1, "FAIL": 1, "SKIP": 0, "ERROR": 0 },
+  "summary": { "PASS": 1, "WARN": 0, "FAIL": 1, "SKIP": 0, "ERROR": 0 },
   "results": [
-    { "check": "http_status", "name": null, "status": "PASS", "content": "Got status code 200.", "fails_run": false },
-    { "check": "robots_txt", "name": null, "status": "WARN", "content": "https://example.com/robots.txt returned status code 404.", "fails_run": false },
-    { "check": "security_headers", "name": "Content-Security-Policy", "status": "FAIL", "content": "Header missing.", "fails_run": true }
+    {
+      "check": "http_status", "name": null, "status": "PASS", "summary": "Got status code 200.",
+      "details": [], "data": {}, "duration_seconds": 0.412, "fails_run": false
+    },
+    {
+      "check": "broken_links", "name": null, "status": "FAIL", "summary": "2 of 31 links broken:",
+      "details": ["https://example.com/old (404)", "https://cdn.example.com/x.js (ConnectError)"],
+      "data": {}, "duration_seconds": 0.731, "fails_run": true
+    }
   ]
 }
 ```
 
+- `started_at` is in UTC. `duration_seconds` at the top is the whole run. On a result, it's how long that check took, and every result from one check shares it.
+- `details` holds extra lines for people, such as each broken link. `data` holds values for scripts, and its keys depend on the check.
 - `summary` always has all five statuses, including those with a count of 0. It counts every result, even with `--quiet`.
 - `name` is `null` unless the check produces several results, like `security_headers` does per header.
 - `fails_run` says whether that result makes the run fail, with strict mode already applied. To get only the failures, use `--quiet`, which leaves only results with `fails_run: true`.
@@ -155,7 +166,7 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
 
 - **Context:** the first parameter. `ctx.target` is the configured URL, and `ctx.get(url)` sends a GET once per run and shares the response with every other check. Requests made directly through `ctx.http_client` aren't shared.
 - **Options:** keyword-only parameters after `*`, each with a default. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
-- **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header.
+- **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header. Every `Result` needs a status and a `summary`: one non-empty line saying what the check found. A summary with a line break becomes an `ERROR`, so put extra lines for people in `details=` (a list of strings, printed indented under the summary), as `broken_links` does for each broken link. Put values for scripts in `data=` (a JSON-serializable dict, only shown in `--json` output), such as `data={"days_left": 69}`. Owlet fills in `check_name` and `duration_seconds` itself.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`.
 - **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it for every available check when the config loads, even checks that aren't in `active_checks` or have no `[checks.<name>]` table (then with the defaults), so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
 

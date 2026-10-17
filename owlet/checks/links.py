@@ -53,7 +53,7 @@ async def broken_links(ctx: Context, *, max_links: int = 50, max_concurrent_requ
     problems = [problem for problem in broken if problem]
 
     if problems:
-        return Result(Status.FAIL, f"{len(problems)} of {len(links)} links broken:\n" + "\n".join(problems))
+        return Result(Status.FAIL, f"{len(problems)} of {len(links)} links broken:", details=problems)
     return Result(Status.PASS, f"All {len(links)} links OK.")
 
 
@@ -65,7 +65,7 @@ async def _find_problem(ctx: Context, semaphore: asyncio.Semaphore, link: str) -
             if response.status_code in (403, 405, 501):
                 response = await ctx.get(link)
         except (httpx.HTTPError, httpx.InvalidURL) as e:
-            return f"    {link} ({type(e).__name__})"
+            return f"{link} ({type(e).__name__})"
     if response.is_client_error or response.is_server_error:
-        return f"    {link} ({response.status_code})"
+        return f"{link} ({response.status_code})"
     return None

@@ -3,9 +3,11 @@ import asyncio
 import inspect
 import json
 import sys
+import time
 import traceback
 from collections import Counter
 from dataclasses import replace
+from datetime import UTC, datetime
 from importlib.metadata import metadata
 from itertools import groupby
 from pathlib import Path
@@ -102,13 +104,16 @@ def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, as_jso
         print(f"Config error: {e}", file=sys.stderr)
         return ExitCode.USAGE_ERROR
 
+    started_at = datetime.now(UTC)
+    started = time.perf_counter()
     results = asyncio.run(owlet.run())
+    duration = time.perf_counter() - started
     exit_code = owlet.exit_code(results)
     shown = [result for result in results if owlet.is_failure(result)] if quiet else results
     if as_json:
-        print(_results_json(settings, owlet, shown, results, exit_code))
+        print(_results_json(settings, owlet, shown, results, exit_code, started_at, duration))
     elif shown:
-        _print_results(shown, results)
+        _print_results(shown, results, duration)
     return exit_code
 
 
@@ -134,27 +139,35 @@ def _group(check: Check) -> str:
     return check.func.__module__.rpartition(".")[2]
 
 
-def _print_results(shown: list[Result], results: list[Result]) -> None:
+def _print_results(shown: list[Result], results: list[Result], duration: float) -> None:
     """Print the `shown` results as a table, then a count per status across all `results`."""
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column(no_wrap=True)
     table.add_column()
     for result in shown:
-        table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(result.content or ""))
+        text = "\n".join([result.summary, *(f"  {line}" for line in result.details)])
+        table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(text))
     console.print(table)
 
     counts = Counter(result.status for result in results)
-    print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]))
+    print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]) + f" in {duration:.2f}s")
 
 
-def _results_json(settings: Config, owlet: Owlet, shown: list[Result], results: list[Result], exit_code: ExitCode) -> str:
+
+
+def _results_json(
+    settings: Config, owlet: Owlet, shown: list[Result], results: list[Result], exit_code: ExitCode, started_at: datetime, duration: float
+) -> str:
     """The `shown` results as JSON, with a count per status across all `results`."""
     counts = Counter(result.status for result in results)
     return json.dumps(
         {
+            "owlet_version": metadata("owlet")["Version"],
             "target": settings.target,
             "strict": settings.strict,
+            "started_at": started_at.isoformat(timespec="seconds"),
+            "duration_seconds": round(duration, 3),
             "exit_code": int(exit_code),
             "summary": {status: counts[status] for status in Status},
             "results": [
@@ -162,7 +175,10 @@ def _results_json(settings: Config, owlet: Owlet, shown: list[Result], results: 
                     "check": result.check_name,
                     "name": result.name,
                     "status": result.status,
-                    "content": result.content,
+                    "summary": result.summary,
+                    "details": list(result.details),
+                    "data": result.data,
+                    "duration_seconds": round(result.duration_seconds, 3) if result.duration_seconds is not None else None,
                     "fails_run": owlet.is_failure(result),
                 }
                 for result in shown
