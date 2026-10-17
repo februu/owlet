@@ -1,6 +1,7 @@
 from urllib.parse import urlsplit, urlunsplit
 
 from owlet.check import Result, Status, check
+from owlet.config import ConfigError
 from owlet.context import Context
 
 
@@ -13,7 +14,12 @@ async def http_status(ctx: Context) -> Result:
     return Result(Status.PASS if response.is_success else Status.FAIL, f"Got status code {response.status_code}{redirects}.")
 
 
-@check
+def _validate_response_time(*, limit_seconds: float) -> None:
+    if limit_seconds <= 0:
+        raise ConfigError(f"limit_seconds must be greater than 0, got {limit_seconds}.")
+
+
+@check(validate=_validate_response_time)
 async def response_time(ctx: Context, *, limit_seconds: float = 1.5) -> Result:
     """Page responds within `limit_seconds`, including redirects."""
     response = await ctx.get(ctx.target)

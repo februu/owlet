@@ -5,6 +5,7 @@ from urllib.parse import urldefrag, urljoin
 import httpx
 
 from owlet.check import Result, Status, check
+from owlet.config import ConfigError
 from owlet.context import Context
 
 LINK_ATTRIBUTES = {"a": "href", "link": "href", "img": "src", "script": "src"}
@@ -26,7 +27,14 @@ class _LinkParser(HTMLParser):
             self.links.append(value)
 
 
-@check
+def _validate_broken_links(*, max_links: int, max_concurrent_requests: int) -> None:
+    if max_links < 1:
+        raise ConfigError(f"max_links must be at least 1, got {max_links}.")
+    if max_concurrent_requests < 1:
+        raise ConfigError(f"max_concurrent_requests must be at least 1, got {max_concurrent_requests}.")
+
+
+@check(validate=_validate_broken_links)
 async def broken_links(ctx: Context, *, max_links: int = 50, max_concurrent_requests: int = 10) -> Result:
     """Links and resources on the page don't return 4xx/5xx (first `max_links` unique URLs)."""
     response = await ctx.get(ctx.target)
@@ -56,7 +64,7 @@ async def _find_problem(ctx: Context, semaphore: asyncio.Semaphore, link: str) -
             # Some servers don't support HEAD or reject it; retry with GET before calling the link broken.
             if response.status_code in (403, 405, 501):
                 response = await ctx.get(link)
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, httpx.InvalidURL) as e:
             return f"    {link} ({type(e).__name__})"
     if response.is_client_error or response.is_server_error:
         return f"    {link} ({response.status_code})"

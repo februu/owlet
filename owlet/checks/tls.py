@@ -5,12 +5,18 @@ from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from owlet.check import Result, Status, check
+from owlet.config import ConfigError
 from owlet.context import Context
 
 CONNECT_TIMEOUT_SECONDS = 10
 
 
-@check
+def _validate_ssl_certificate(*, fail_days: int, warn_days: int) -> None:
+    if fail_days > warn_days:
+        raise ConfigError(f"fail_days ({fail_days}) must not be greater than warn_days ({warn_days}).")
+
+
+@check(validate=_validate_ssl_certificate)
 async def ssl_certificate(ctx: Context, *, fail_days: int = 14, warn_days: int = 30) -> Result:
     """Certificate verifies and has at least `fail_days` days before expiry (warns under `warn_days`)."""
     parts = urlsplit(ctx.target)
