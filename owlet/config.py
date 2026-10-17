@@ -2,6 +2,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 class ConfigError(ValueError):
@@ -38,14 +39,32 @@ def load_config(file_path: Path) -> Config:
     unknown = sorted(data.keys() - KNOWN_KEYS)
     if unknown:
         raise ConfigError(f"Unknown config key(s): {', '.join(unknown)}.")
+
+    target = data.get("target")
+    if not isinstance(target, str) or not target.strip():
+        raise ConfigError("'target' must be set to the URL of the site to check.")
+    parts = urlsplit(target)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ConfigError(f"'target' must be an http:// or https:// URL, got {target!r}.")
+
+    active_checks = data.get("active_checks", [])
+    if not isinstance(active_checks, list) or not all(isinstance(name, str) for name in active_checks):
+        raise ConfigError(f"'active_checks' must be a list of check names, got {active_checks!r}.")
+
+    strict = data.get("strict", False)
+    if not isinstance(strict, bool):
+        raise ConfigError(f"'strict' must be true or false, got {strict!r}.")
+
     check_options = data.get("checks", {})
+    if not isinstance(check_options, dict):
+        raise ConfigError("'checks' must be a table of [checks.<name>] tables.")
     for name, options in check_options.items():
         if not isinstance(options, dict):
             raise ConfigError(f"Options for check '{name}' must be a [checks.{name}] table.")
 
     return Config(
-        target=data.get("target", ""),
-        active_checks=data.get("active_checks", []),
-        strict=data.get("strict", False),
+        target=target,
+        active_checks=active_checks,
+        strict=strict,
         check_options=check_options,
     )
