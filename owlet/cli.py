@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import json
 import sys
+import traceback
 from collections import Counter
 from dataclasses import replace
 from importlib.metadata import metadata
@@ -43,6 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        return ExitCode.INTERRUPTED
+    except Exception:
+        traceback.print_exc()
+        print("\nInternal error: owlet or one of its checks crashed. This is a bug, not a problem with the site.", file=sys.stderr)
+        return ExitCode.INTERNAL_ERROR
+
+
+def _main(argv: list[str] | None) -> int:
     parser = build_parser()
     args, unknown = parser.parse_known_args(argv)
     _validate(parser, args, unknown)

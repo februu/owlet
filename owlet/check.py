@@ -86,6 +86,8 @@ class Check:
                 self.validate(**(defaults | resolved))
             except ConfigError as e:
                 raise ConfigError(f"Check '{self.name}': {e}") from None
+            except Exception as e:
+                raise RuntimeError(f"Check '{self.name}': validate crashed with {_describe(e)}") from e
         return resolved
 
     async def run(self, ctx: Context, options: Mapping[str, Any] | None = None) -> list[Result]:

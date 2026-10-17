@@ -110,10 +110,12 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 | `0` | No failures. Warnings and skips are allowed unless `strict = true`. |
 | `1` | At least one `FAIL` or `ERROR`, or a `WARN` in strict mode. |
 | `2` | Invalid command-line arguments, or a missing or invalid config. |
+| `3` | Owlet itself crashed outside a check, for example a check module that fails to import or a `validate` function that raises something other than `ConfigError`. Owlet prints the traceback to stderr. This is a bug in owlet or a check, not a problem with the site. A crash inside a running check is reported as that check's `ERROR` result instead, and the other checks still run. |
+| `130` | The run was interrupted with Ctrl+C. |
 
 ### JSON output
 
-`--json` prints one JSON document to stdout. Exit codes are the same as for the table. Config and argument errors still print as text to stderr, with exit code 2.
+`--json` prints one JSON document to stdout. Exit codes are the same as for the table. Config and argument errors still print as text to stderr, with exit code 2, and internal errors print a traceback to stderr, with exit code 3.
 
 ```json
 {

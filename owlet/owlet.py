@@ -18,6 +18,10 @@ class ExitCode(IntEnum):
     """At least one check failed or errored, or warned in strict mode."""
     USAGE_ERROR = 2
     """Owlet couldn't run: invalid command-line arguments, or a missing or invalid config."""
+    INTERNAL_ERROR = 3
+    """Owlet itself crashed outside a check, e.g. a check module failed to import. A bug, not a problem with the site."""
+    INTERRUPTED = 130
+    """The run was cancelled with Ctrl+C."""
 
 
 class Owlet:
