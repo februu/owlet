@@ -61,7 +61,7 @@ Running `owlet` with no arguments shows the help.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `target` | string | `""` | URL of the site to check. |
+| `target` | string | | Required. `http://` or `https://` URL of the site to check. |
 | `active_checks` | list of strings | | Checks to run, in output order. Duplicates are ignored. Must list at least one check, unless you pass `--only`. |
 | `strict` | bool | `false` | Treat `WARN` as a failure when deciding the exit code. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
@@ -78,7 +78,7 @@ limit_seconds = 0.8
 warn_days = 45
 ```
 
-Owlet validates the whole config before it sends any request. Unknown keys, unknown checks, unknown options and values of the wrong type all stop the run with a `Config error:` message and exit code 2. Options for checks that aren't in `active_checks` are validated too, so a typo doesn't stay hidden until you turn the check on.
+Owlet validates the whole config before it sends any request. Unknown keys, unknown checks, unknown options, values of the wrong type and option values a check can't use all stop the run with a `Config error:` message and exit code 2. Options for checks that aren't in `active_checks` are validated too, so a typo doesn't stay hidden until you turn the check on.
 
 ## Checks
 
@@ -130,6 +130,18 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
 - **Options:** keyword-only parameters after `*`, each with a default. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
 - **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`.
+- **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it when the config loads, so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
+
+  ```python
+  def _validate_has_title(*, min_length: int) -> None:
+      if min_length < 1:
+          raise ConfigError(f"min_length must be at least 1, got {min_length}.")
+
+
+  @check(validate=_validate_has_title)
+  async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
+      ...
+  ```
 - **Docstring:** shown by `owlet --list-checks`, so write it as a one-line summary of what passing means.
 
 Checks can be `async def` (preferred), async generators, or plain functions. Plain functions run in a worker thread.

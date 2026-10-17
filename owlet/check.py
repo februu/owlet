@@ -55,6 +55,8 @@ class Check:
     func : CheckFunction
     options : Mapping[str, inspect.Parameter]
     """Configurable options, taken from the function's keyword-only parameters."""
+    validate : Callable[..., None] | None = None
+    """Called with every option as a keyword argument when the config loads; raises ConfigError for unusable values."""
 
     def resolve_options(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Validate options from the config against the function's signature. Unset options keep their defaults."""
@@ -71,13 +73,19 @@ class Check:
                 raise ConfigError(
                     f"Option '{self.name}.{key}' must be {_type_name(annotation)}, got {value!r}."
                 ) from None
+        if self.validate:
+            defaults = {name: param.default for name, param in self.options.items()}
+            try:
+                self.validate(**(defaults | resolved))
+            except ConfigError as e:
+                raise ConfigError(f"Check '{self.name}': {e}") from None
         return resolved
 
     async def run(self, ctx: Context, options: Mapping[str, Any] | None = None) -> list[Result]:
         try:
             results = await self._collect(ctx, options or {})
-        except (httpx.HTTPError, OSError) as e:
-            # Network trouble reaching the target (timeouts, refused connections, TLS errors) is a problem with the site.
+        except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
+            # Network trouble reaching the target (timeouts, refused connections, TLS errors, malformed URLs) is a problem with the site.
             results = [Result(Status.FAIL, _describe(e))]
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
             results = [Result(Status.ERROR, _describe(e))]
@@ -137,11 +145,22 @@ def _as_list(output: Any) -> list[Result]:
 _registry: dict[str, Check] = {}
 
 
-def check(func):
-    if func.__name__ in _registry:
-        raise ValueError(f"Duplicate check name '{func.__name__}'.")
-    _registry[func.__name__] = Check(func.__name__, inspect.getdoc(func), func, _option_parameters(func))
-    return func
+def check(func=None, *, validate: Callable[..., None] | None = None):
+    """Register a check. Use as `@check`, or as `@check(validate=...)` to also validate option values."""
+
+    def register(func):
+        if func.__name__ in _registry:
+            raise ValueError(f"Duplicate check name '{func.__name__}'.")
+        options = _option_parameters(func)
+        if validate:
+            try:
+                inspect.signature(validate).bind(**options)
+            except TypeError:
+                raise TypeError(f"Check '{func.__name__}': validate must take the options {', '.join(options)} as keywords.") from None
+        _registry[func.__name__] = Check(func.__name__, inspect.getdoc(func), func, options, validate)
+        return func
+
+    return register(func) if func else register
 
 
 def _option_parameters(func) -> dict[str, inspect.Parameter]:
