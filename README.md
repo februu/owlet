@@ -40,6 +40,8 @@ uv run owlet --init https://example.com > config.toml    # config.toml is git-ig
 uv run owlet config.toml
 ```
 
+In Windows PowerShell 5.1, `>` saves the file as UTF-16, which owlet rejects because TOML must be UTF-8. Use `uv run owlet --init https://example.com | Out-File -Encoding utf8 config.toml` there instead. PowerShell 7 and other shells save UTF-8 already.
+
 `--init` enables every check and lists every option, commented out at its default. Results print in the order the checks are listed in `active_checks`, followed by a count per status.
 
 ## Cli

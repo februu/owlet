@@ -1,3 +1,4 @@
+import codecs
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,10 +32,20 @@ KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "che
 def load_config(file_path: Path) -> Config:
     """Load configuration from a TOML file."""
     try:
-        with open(file_path, "rb") as f:
-            data = tomllib.load(f)
+        raw = Path(file_path).read_bytes()
     except OSError as e:
         raise ConfigError(f"Can't read config file '{file_path}': {e.strerror}.") from e
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        # Windows PowerShell 5.1 writes redirected output (`owlet --init ... > config.toml`) as UTF-16.
+        raise ConfigError(
+            f"'{file_path}' is saved as UTF-16, but TOML files must be UTF-8. "
+            "Windows PowerShell 5.1 does this when you redirect with `>`. Re-save the file as UTF-8, "
+            "or create it with: owlet --init TARGET | Out-File -Encoding utf8 config.toml"
+        )
+    try:
+        data = tomllib.loads(raw.decode("utf-8-sig"))
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"'{file_path}' isn't valid UTF-8 (byte {e.start}). TOML files must be UTF-8.") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"Invalid TOML in '{file_path}': {e}.") from e
 
