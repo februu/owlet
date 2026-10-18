@@ -14,7 +14,7 @@ class Config:
     """Configuration for the application."""
 
     target: str
-    """The target URL or IP address to check."""
+    """The http:// or https:// URL to check."""
     active_checks: list[str]
     """List of checks to run."""
     strict: bool = False

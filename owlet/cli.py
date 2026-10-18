@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)
         return ExitCode.INTERRUPTED
-    except Exception:
+    except Exception:  # noqa: BLE001 - any crash must map to INTERNAL_ERROR, not Python's default exit code 1
         traceback.print_exc()
         print("\nInternal error: owlet or one of its checks crashed. This is a bug, not a problem with the site.", file=sys.stderr)
         return ExitCode.INTERNAL_ERROR
@@ -152,8 +152,6 @@ def _print_results(shown: list[Result], results: list[Result], duration: float) 
 
     counts = Counter(result.status for result in results)
     print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]) + f" in {duration:.2f}s")
-
-
 
 
 def _results_json(

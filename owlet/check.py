@@ -14,7 +14,7 @@ from collections.abc import (
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib import import_module
-from typing import Any, Concatenate, get_args, get_origin
+from typing import Any, Concatenate, cast, get_args, get_origin
 
 import httpx
 
@@ -79,8 +79,8 @@ class Result:
 
 
 type CheckOutput = Result | Iterable[Result]
-type CheckFunction = Callable[Concatenate[Context, ...], Awaitable[CheckOutput] | AsyncIterator[Result] | CheckOutput]
-"""Takes the Context positionally, plus any options as keyword-only parameters with defaults."""
+type CheckFunction = Callable[Concatenate[Context, ...], Awaitable[CheckOutput] | AsyncIterator[Result]]
+"""An async function or async generator. Takes the Context positionally, plus any options as keyword-only parameters with defaults."""
 
 @dataclass(frozen=True)
 class Check:
@@ -119,12 +119,12 @@ class Check:
                 raise RuntimeError(f"Check '{self.name}': validate crashed with {_describe(e)}") from e
         return resolved
 
-    async def run(self, ctx: Context, options: Mapping[str, Any] | None = None, timeout: float | None = None) -> list[Result]:
+    async def run(self, ctx: Context, options: Mapping[str, Any], timeout: float | None = None) -> list[Result]:
         deadline = asyncio.timeout(timeout)
         started = time.perf_counter()
         try:
             async with deadline:
-                results = await self._collect(ctx, options or {})
+                results = await self._collect(ctx, options)
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
             # Network trouble reaching the target (timeouts, refused connections, TLS errors, malformed URLs) is a problem with the site.
             message = f"Timed out after {timeout:g}s." if deadline.expired() else _describe(e)
@@ -139,9 +139,7 @@ class Check:
     async def _collect(self, ctx: Context, options: Mapping[str, Any]) -> list[Result]:
         if inspect.isasyncgenfunction(self.func):
             return _as_list([result async for result in self.func(ctx, **options)])
-        if inspect.iscoroutinefunction(self.func):
-            return _as_list(await self.func(ctx, **options))
-        return await asyncio.to_thread(lambda: _as_list(self.func(ctx, **options)))
+        return _as_list(await cast(Awaitable[CheckOutput], self.func(ctx, **options)))
 
 
 def _describe(e: Exception) -> str:
@@ -176,7 +174,7 @@ def _coerce(value: Any, annotation: Any) -> Any:
 
 
 def _type_name(annotation: Any) -> str:
-    return annotation.__name__ if isinstance(annotation, type) and not get_origin(annotation) else str(annotation)
+    return annotation.__name__ if isinstance(annotation, type) else str(annotation)
 
 
 def _as_list(output: Any) -> list[Result]:
@@ -200,6 +198,8 @@ def check(func=None, *, validate: Callable[..., None] | None = None):
     def register(func):
         if func.__name__ in _registry:
             raise ValueError(f"Duplicate check name '{func.__name__}'.")
+        if not (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
+            raise TypeError(f"Check '{func.__name__}' must be an async function (async def).")
         options = _option_parameters(func)
         if validate:
             try:
@@ -224,8 +224,11 @@ def _option_parameters(func) -> dict[str, inspect.Parameter]:
     return {param.name: param for param in option_params}
 
 
-def discover_checks(package: str = "owlet.checks") -> dict[str, Check]:
-    """Import every module in `package` so their @check decorators run, then return all registered checks."""
-    for module_info in pkgutil.iter_modules(import_module(package).__path__):
-        import_module(f"{package}.{module_info.name}")
+CHECKS_PACKAGE = "owlet.checks"
+
+
+def discover_checks() -> dict[str, Check]:
+    """Import every module in owlet.checks so their @check decorators run, then return all registered checks."""
+    for module_info in pkgutil.iter_modules(import_module(CHECKS_PACKAGE).__path__):
+        import_module(f"{CHECKS_PACKAGE}.{module_info.name}")
     return dict(_registry)

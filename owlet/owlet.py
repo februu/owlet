@@ -32,12 +32,11 @@ class Owlet:
         self._check_timeout: float = config.check_timeout_seconds
         self._active_checks: list[str] = list(dict.fromkeys(config.active_checks))
         self._available_checks: dict[str, Check] = discover_checks()
-        self._validate_required_checks_are_available(self._active_checks, self._available_checks)
+        self._validate_required_checks_are_available(self._active_checks)
         self._check_options: dict[str, dict[str, Any]] = self._resolve_check_options(config.check_options)
         if not self._active_checks:
             # An empty run would always exit 0, hiding a broken config in CI.
             raise ConfigError("No checks to run: active_checks is empty.")
-
 
     async def run(self) -> list[Result]:
         async with httpx.AsyncClient() as http_client:
@@ -45,7 +44,7 @@ class Owlet:
             try:
                 async with asyncio.TaskGroup() as tg:
                     tasks = [
-                        tg.create_task(self._available_checks[name].run(context, self._check_options.get(name), self._check_timeout))
+                        tg.create_task(self._available_checks[name].run(context, self._check_options[name], self._check_timeout))
                         for name in self._active_checks
                     ]
             finally:
@@ -60,10 +59,10 @@ class Owlet:
         return ExitCode.CHECKS_FAILED if any(self.is_failure(result) for result in results) else ExitCode.OK
 
     def _resolve_check_options(self, check_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        self._validate_required_checks_are_available(list(check_options), self._available_checks)
+        self._validate_required_checks_are_available(list(check_options))
         return {name: check.resolve_options(check_options.get(name, {})) for name, check in self._available_checks.items()}
 
-    def _validate_required_checks_are_available(self, required_checks : list[str], available_checks : dict[str, Check]):
-        missing = [check for check in required_checks if check not in available_checks]
+    def _validate_required_checks_are_available(self, required_checks : list[str]):
+        missing = [check for check in required_checks if check not in self._available_checks]
         if missing:
             raise ConfigError(f"Unknown checks: {', '.join(sorted(missing))}")

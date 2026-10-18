@@ -182,4 +182,4 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
   ```
 - **Docstring:** shown by `owlet --list-checks`, so write it as a one-line summary of what passing means.
 
-Checks can be `async def` (preferred), async generators, or plain functions. Plain functions run in a worker thread.
+Checks must be `async def` functions, either returning their results or `yield`ing them as an async generator. A plain `def` is rejected when owlet loads the checks.
