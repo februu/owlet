@@ -20,6 +20,7 @@ import httpx
 
 from owlet.config import ConfigError
 from owlet.context import Context
+from owlet.suggest import with_suggestion
 
 
 class Status(StrEnum):
@@ -99,7 +100,8 @@ class Check:
         unknown = sorted(values.keys() - self.options.keys())
         if unknown:
             available = ", ".join(self.options) or "none"
-            raise ConfigError(f"Unknown option(s) for check '{self.name}': {', '.join(unknown)} (available: {available}).")
+            named = ", ".join(with_suggestion(key, self.options) for key in unknown)
+            raise ConfigError(f"Unknown option(s) for check '{self.name}': {named}. Available: {available}.")
         resolved = {}
         for key, value in values.items():
             annotation = self.options[key].annotation

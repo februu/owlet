@@ -19,6 +19,7 @@ from rich.text import Text
 from owlet.check import Check, Result, Status, discover_checks
 from owlet.config import Config, ConfigError, load_config
 from owlet.owlet import ExitCode, Owlet
+from owlet.suggest import with_suggestion
 
 STATUS_STYLES = {
     Status.PASS: "green",
@@ -78,7 +79,9 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
     if args.config and not args.config.exists() and str(args.config) in ("init", "list-checks"):
         parser.error(f"'{args.config}' is not a config file. Did you mean --{args.config}?")
     if unknown:
-        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+        flags = [flag for action in parser._actions for flag in action.option_strings]
+        named = [with_suggestion(arg, flags, match_on=arg.partition("=")[0]) if arg.startswith("-") else arg for arg in unknown]
+        parser.error(f"unrecognized arguments: {', '.join(named)}")
     if args.init is not None and not args.init.strip():
         parser.error("--init needs a TARGET URL")
     modes = [flag for flag, used in (("--list-checks", args.list_checks), ("--init", args.init is not None)) if used]

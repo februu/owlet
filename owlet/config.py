@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from owlet.suggest import with_suggestion
+
 
 class ConfigError(ValueError):
     """The config is invalid: unreadable file, bad TOML, unknown keys, checks or options, or values of the wrong type."""
@@ -51,7 +53,7 @@ def load_config(file_path: Path) -> Config:
 
     unknown = sorted(data.keys() - KNOWN_KEYS)
     if unknown:
-        raise ConfigError(f"Unknown config key(s): {', '.join(unknown)}.")
+        raise ConfigError(f"Unknown config key(s): {', '.join(with_suggestion(key, KNOWN_KEYS) for key in unknown)}.")
 
     target = data.get("target")
     if not isinstance(target, str) or not target.strip():

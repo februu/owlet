@@ -7,6 +7,7 @@ import httpx
 from owlet.check import Check, Result, Status, discover_checks
 from owlet.config import Config, ConfigError
 from owlet.context import Context
+from owlet.suggest import with_suggestion
 
 
 class ExitCode(IntEnum):
@@ -65,4 +66,4 @@ class Owlet:
     def _validate_required_checks_are_available(self, required_checks : list[str]):
         missing = [check for check in required_checks if check not in self._available_checks]
         if missing:
-            raise ConfigError(f"Unknown checks: {', '.join(sorted(missing))}")
+            raise ConfigError(f"Unknown checks: {', '.join(with_suggestion(name, self._available_checks) for name in sorted(missing))}")
