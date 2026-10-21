@@ -6,7 +6,6 @@ import sys
 import time
 import traceback
 from collections import Counter
-from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.metadata import metadata
 from itertools import groupby
@@ -17,8 +16,9 @@ from rich.table import Table
 from rich.text import Text
 
 from owlet.check import Check, Result, Status, discover_checks
-from owlet.config import Config, ConfigError, load_config
+from owlet.config import ConfigError, load_config
 from owlet.owlet import ExitCode, Owlet
+from owlet.plan import resolve
 from owlet.suggest import with_suggestion
 
 STATUS_STYLES = {
@@ -109,13 +109,7 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
 
 def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbose: bool, as_json: bool) -> ExitCode:
     try:
-        settings = load_config(config)
-        settings = replace(
-            settings,
-            active_checks=only or settings.active_checks,
-            strict=strict or settings.strict,
-        )
-        owlet = Owlet(settings)
+        owlet = Owlet(resolve(load_config(config), discover_checks(), only=only, strict=strict))
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return ExitCode.USAGE_ERROR
@@ -127,7 +121,7 @@ def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbos
     exit_code = owlet.exit_code(results)
     shown = [result for result in results if owlet.is_failure(result)] if quiet else results
     if as_json:
-        print(_results_json(settings, owlet, shown, results, exit_code, started_at, duration))
+        print(_results_json(owlet, shown, results, exit_code, started_at, duration))
     elif shown:
         _print_results(shown, results, duration, verbose)
     return exit_code
@@ -173,15 +167,15 @@ def _print_results(shown: list[Result], results: list[Result], duration: float, 
 
 
 def _results_json(
-    settings: Config, owlet: Owlet, shown: list[Result], results: list[Result], exit_code: ExitCode, started_at: datetime, duration: float
+    owlet: Owlet, shown: list[Result], results: list[Result], exit_code: ExitCode, started_at: datetime, duration: float
 ) -> str:
     """The `shown` results as JSON, with a count per status across all `results`."""
     counts = Counter(result.status for result in results)
     return json.dumps(
         {
             "owlet_version": metadata("owlet")["Version"],
-            "target": settings.target,
-            "strict": settings.strict,
+            "target": owlet.plan.target,
+            "strict": owlet.plan.strict,
             "started_at": started_at.isoformat(timespec="seconds"),
             "duration_seconds": round(duration, 3),
             "exit_code": int(exit_code),
