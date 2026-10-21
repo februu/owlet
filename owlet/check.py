@@ -224,27 +224,53 @@ def _require_result(result: Any) -> Result:
     return result
 
 
-_registry: dict[str, Check] = {}
+class Registry:
+    """Holds checks by name."""
+
+    def __init__(self) -> None:
+        self._checks: dict[str, Check] = {}
+
+    def check(self, func=None, *, validate: Callable[..., None] | None = None):
+        """Register a check. Use as `@registry.check`, or as `@registry.check(validate=...)` to also validate option values."""
+
+        def register(func):
+            self.add(_make_check(func, validate))
+            return func
+
+        return register(func) if func else register
+
+    def add(self, check: Check) -> None:
+        if existing := self._checks.get(check.name):
+            raise ValueError(
+                f"Duplicate check name '{check.name}' in {check.func.__module__}, already defined in {existing.func.__module__}."
+            )
+        self._checks[check.name] = check
+
+    @property
+    def checks(self) -> dict[str, Check]:
+        """A copy of the registered checks, in registration order."""
+        return dict(self._checks)
+
+
+registry = Registry()
+"""The registry `@check` adds to, and that discover_checks returns."""
 
 
 def check(func=None, *, validate: Callable[..., None] | None = None):
-    """Register a check. Use as `@check`, or as `@check(validate=...)` to also validate option values."""
+    """Register a check in the default `registry`. Use as `@check`, or as `@check(validate=...)` to also validate option values."""
+    return registry.check(func, validate=validate)
 
-    def register(func):
-        if func.__name__ in _registry:
-            raise ValueError(f"Duplicate check name '{func.__name__}'.")
-        if not (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
-            raise TypeError(f"Check '{func.__name__}' must be an async function (async def).")
-        options = _option_parameters(func)
-        if validate:
-            try:
-                inspect.signature(validate).bind(**options)
-            except TypeError:
-                raise TypeError(f"Check '{func.__name__}': validate must take the options {', '.join(options)} as keywords.") from None
-        _registry[func.__name__] = Check(func.__name__, inspect.getdoc(func), func, options, validate)
-        return func
 
-    return register(func) if func else register
+def _make_check(func, validate: Callable[..., None] | None) -> Check:
+    if not (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
+        raise TypeError(f"Check '{func.__name__}' must be an async function (async def).")
+    options = _option_parameters(func)
+    if validate:
+        try:
+            inspect.signature(validate).bind(**options)
+        except TypeError:
+            raise TypeError(f"Check '{func.__name__}': validate must take the options {', '.join(options)} as keywords.") from None
+    return Check(func.__name__, inspect.getdoc(func), func, options, validate)
 
 
 def _option_parameters(func) -> dict[str, inspect.Parameter]:
@@ -266,4 +292,4 @@ def discover_checks() -> dict[str, Check]:
     """Import every module in owlet.checks so their @check decorators run, then return all registered checks."""
     for module_info in pkgutil.iter_modules(import_module(CHECKS_PACKAGE).__path__):
         import_module(f"{CHECKS_PACKAGE}.{module_info.name}")
-    return dict(_registry)
+    return registry.checks

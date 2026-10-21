@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from enum import IntEnum
 from typing import Any
 
@@ -26,12 +27,13 @@ class ExitCode(IntEnum):
 
 
 class Owlet:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, checks: Mapping[str, Check] | None = None):
+        """`checks` are the checks available to run, by name; defaults to every discovered check."""
         self._target: str = config.target
         self._strict: bool = config.strict
         self._check_timeout: float = config.check_timeout_seconds
         self._active_checks: list[str] = list(dict.fromkeys(config.active_checks))
-        self._available_checks: dict[str, Check] = discover_checks()
+        self._available_checks: dict[str, Check] = dict(checks) if checks is not None else discover_checks()
         self._validate_required_checks_are_available(self._active_checks)
         self._check_options: dict[str, dict[str, Any]] = self._resolve_check_options(config.check_options)
         if not self._active_checks:
