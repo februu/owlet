@@ -126,12 +126,11 @@ class Check:
         try:
             async with deadline:
                 results = await self._collect(ctx, options)
-        except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
-            # Network trouble reaching the target (timeouts, refused connections, TLS errors, malformed URLs) is a problem with the site.
-            message = f"Timed out after {timeout:g}s." if deadline.expired() else _describe(e)
-            results = [_text_result(Status.FAIL, message)]
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
-            results = [_text_result(Status.ERROR, _describe(e))]
+            if deadline.expired():
+                results = [Result(Status.FAIL, f"Timed out after {timeout:g}s.")]
+            else:
+                results = [_text_result(Status.FAIL if _is_network_error(e) else Status.ERROR, _describe(e))]
         if not results:
             results = [Result(Status.ERROR, "Check produced no results.")]
         duration = time.perf_counter() - started
@@ -141,6 +140,20 @@ class Check:
         if inspect.isasyncgenfunction(self.func):
             return _as_list([result async for result in self.func(ctx, **options)])
         return _as_list(await cast(Awaitable[CheckOutput], self.func(ctx, **options)))
+
+
+LOCAL_OS_ERRORS = (FileNotFoundError, FileExistsError, IsADirectoryError, NotADirectoryError, PermissionError)
+
+
+def _is_network_error(e: Exception) -> bool:
+    """Trouble reaching the target (DNS, refused or unreachable hosts, TLS errors, timeouts, malformed URLs): a problem with the site.
+
+    Network failures surface as many OSError types, including plain OSError, so match those broadly but leave out
+    filesystem errors, which point at a bug in the check and become ERROR instead.
+    """
+    if isinstance(e, (httpx.HTTPError, httpx.InvalidURL)):
+        return True
+    return isinstance(e, OSError) and not isinstance(e, LOCAL_OS_ERRORS)
 
 
 def _describe(e: Exception) -> str:
