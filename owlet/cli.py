@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {package['Version']}")
     parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print the traceback under each ERROR result")
     parser.add_argument("-q", "--quiet", action="store_true", help="print only results that fail the run, and nothing if none do")
     parser.add_argument("--json", action="store_true", help="print results as JSON instead of a table")
     parser.add_argument("--list-checks", action="store_true", help="list available checks and their options")
@@ -83,7 +84,7 @@ def _main(argv: list[str] | None) -> int:
     if args.config is None:
         parser.print_help()
         return ExitCode.OK
-    return _run(args.config, args.only, args.strict, args.quiet, args.json)
+    return _run(args.config, args.only, args.strict, args.quiet, args.verbose, args.json)
 
 
 def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown: list[str]) -> None:
@@ -102,11 +103,11 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
     if modes and args.config:
         hint = " Redirect its output instead: owlet --init TARGET > config.toml" if args.init is not None else ""
         parser.error(f"{modes[0]} doesn't take a config file.{hint}")
-    if not args.config and (args.only or args.strict or args.quiet or args.json):
-        parser.error("--only, --strict, --quiet and --json need a config file to run")
+    if not args.config and (args.only or args.strict or args.quiet or args.verbose or args.json):
+        parser.error("--only, --strict, --quiet, --verbose and --json need a config file to run")
 
 
-def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, as_json: bool) -> ExitCode:
+def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbose: bool, as_json: bool) -> ExitCode:
     try:
         settings = load_config(config)
         settings = replace(
@@ -128,7 +129,7 @@ def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, as_jso
     if as_json:
         print(_results_json(settings, owlet, shown, results, exit_code, started_at, duration))
     elif shown:
-        _print_results(shown, results, duration)
+        _print_results(shown, results, duration, verbose)
     return exit_code
 
 
@@ -154,15 +155,17 @@ def _group(check: Check) -> str:
     return check.func.__module__.rpartition(".")[2]
 
 
-def _print_results(shown: list[Result], results: list[Result], duration: float) -> None:
-    """Print the `shown` results as a table, then a count per status across all `results`."""
+def _print_results(shown: list[Result], results: list[Result], duration: float, verbose: bool) -> None:
+    """Print the `shown` results as a table, then a count per status across all `results`. `verbose` adds tracebacks."""
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column(no_wrap=True)
     table.add_column()
     for result in shown:
-        text = "\n".join([result.summary, *(f"  {line}" for line in result.details)])
-        table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(text))
+        text = Text("\n".join([result.summary, *(f"  {line}" for line in result.details)]))
+        if verbose and result.traceback:
+            text.append("\n" + "\n".join(f"  {line}" for line in result.traceback.splitlines()), style="dim")
+        table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), text)
     _print_table(table)
 
     counts = Counter(result.status for result in results)
@@ -193,6 +196,7 @@ def _results_json(
                     "data": result.data,
                     "duration_seconds": round(result.duration_seconds, 3) if result.duration_seconds is not None else None,
                     "fails_run": owlet.is_failure(result),
+                    "traceback": result.traceback,
                 }
                 for result in shown
             ],

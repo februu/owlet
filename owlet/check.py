@@ -15,6 +15,7 @@ from collections.abc import (
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib import import_module
+from traceback import StackSummary, TracebackException
 from typing import Any, Concatenate, cast, get_args, get_origin
 
 import httpx
@@ -54,6 +55,8 @@ class Result:
     """Filled in by the runner with the name of the check that produced this result."""
     duration_seconds: float | None = None
     """Filled in by the runner with how long the check took. Every result from one check shares it."""
+    traceback: str | None = None
+    """Filled in by the runner on an ERROR result from an exception the check raised, to debug the check."""
 
     def __post_init__(self):
         try:
@@ -134,8 +137,11 @@ class Check:
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
             if deadline.expired():
                 results.append(Result(Status.FAIL, f"Timed out after {timeout:g}s."))
+            elif _is_network_error(e):
+                results.append(_text_result(Status.FAIL, _describe(e)))
             else:
-                results.append(_text_result(Status.FAIL if _is_network_error(e) else Status.ERROR, _describe(e)))
+                error = _text_result(Status.ERROR, _describe(e))
+                results.append(replace(error, traceback=_check_traceback(e)))
         duration = time.perf_counter() - started
         return [replace(result, check_name=self.name, duration_seconds=duration) for result in results]
 
@@ -160,6 +166,13 @@ def _is_network_error(e: Exception) -> bool:
     if isinstance(e, (httpx.HTTPError, httpx.InvalidURL)):
         return True
     return isinstance(e, OSError) and not isinstance(e, LOCAL_OS_ERRORS)
+
+
+def _check_traceback(e: Exception) -> str:
+    """The traceback of an exception raised by a check, without the runner's own frames in this module."""
+    exception = TracebackException.from_exception(e)
+    exception.stack = StackSummary.from_list([frame for frame in exception.stack if frame.filename != __file__])
+    return "".join(exception.format()).rstrip()
 
 
 def _describe(e: Exception) -> str:

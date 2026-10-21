@@ -47,7 +47,7 @@ In Windows PowerShell 5.1, `>` saves the file as UTF-16, which owlet rejects bec
 ## Cli
 
 ```
-usage: owlet [-h] [--version] [--only CHECK] [--strict] [-q] [--json] [--list-checks] [--init TARGET] [config]
+usage: owlet [-h] [--version] [--only CHECK] [--strict] [-v] [-q] [--json] [--list-checks] [--init TARGET] [config]
 ```
 
 Running `owlet` with no arguments shows the help.
@@ -56,6 +56,7 @@ Running `owlet` with no arguments shows the help.
 |---|---|
 | `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
+| `-v`, `--verbose` | Prints the traceback under each `ERROR` result, to debug the check that crashed. `--json` always includes it. |
 | `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode). If any result fails, the count per status follows them. If none fail, it prints nothing at all, not even the counts, so cron only emails you about problems. With `--json`, it always prints the document, with an empty `results` array if none fail. |
 | `--json` | Prints results as JSON instead of a table. See [JSON output](#json-output). With `--quiet`, `results` lists only the failing results. |
 | `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
@@ -106,7 +107,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 | `WARN` | Worth attention, but not a failure unless `strict = true`. |
 | `FAIL` | The check found a problem with the site. Network errors reaching the site (timeouts, refused connections, TLS errors) count as `FAIL`, and so does a check that runs longer than `check_timeout_seconds`. |
 | `SKIP` | The check doesn't apply to this target, such as TLS checks on an `http://` site. Never fails a run. |
-| `ERROR` | The check itself crashed or returned something invalid. This points at a bug in owlet, not the site. |
+| `ERROR` | The check itself crashed or returned something invalid. This points at a bug in owlet, not the site. Run with `--verbose` to see the traceback. |
 
 | Exit code | Meaning |
 |---|---|
@@ -132,12 +133,12 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
   "results": [
     {
       "check": "http_status", "name": null, "status": "PASS", "summary": "Got status code 200.",
-      "details": [], "data": {}, "duration_seconds": 0.412, "fails_run": false
+      "details": [], "data": {}, "duration_seconds": 0.412, "fails_run": false, "traceback": null
     },
     {
       "check": "broken_links", "name": null, "status": "FAIL", "summary": "2 of 31 links broken:",
       "details": ["https://example.com/old (404)", "https://cdn.example.com/x.js (ConnectError)"],
-      "data": {}, "duration_seconds": 0.731, "fails_run": true
+      "data": {}, "duration_seconds": 0.731, "fails_run": true, "traceback": null
     }
   ]
 }
@@ -147,6 +148,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 - `details` holds extra lines for people, such as each broken link. `data` holds values for scripts, and its keys depend on the check.
 - `summary` always has all five statuses, including those with a count of 0. It counts every result, even with `--quiet`.
 - `name` is `null` unless the check produces several results, like `security_headers` does per header.
+- `traceback` is the Python traceback when the check crashed with an `ERROR`, and `null` otherwise.
 - `fails_run` says whether that result makes the run fail, with strict mode already applied. To get only the failures, use `--quiet`, which leaves only results with `fails_run: true`.
 
 ## Writing your own check
