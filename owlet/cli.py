@@ -198,6 +198,7 @@ def _results_json(
             ],
         },
         indent=2,
+        allow_nan=False,
     )
 
 
