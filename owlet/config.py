@@ -62,14 +62,7 @@ def load_config(file_path: Path) -> Config:
     if unknown:
         raise ConfigError(f"Unknown config key(s): {', '.join(with_suggestion(key, KNOWN_KEYS) for key in unknown)}.")
 
-    target = data.get("target")
-    if not isinstance(target, str) or not target.strip():
-        raise ConfigError("'target' must be set to the URL of the site to check.")
-    if target != target.strip():
-        raise ConfigError(f"'target' must not start or end with whitespace, got {target!r}.")
-    parts = urlsplit(target)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ConfigError(f"'target' must be an http:// or https:// URL, got {target!r}.")
+    target = validate_target(data.get("target"))
 
     active_checks = data.get("active_checks", [])
     if not isinstance(active_checks, list) or not all(isinstance(name, str) for name in active_checks):
@@ -104,6 +97,20 @@ def load_config(file_path: Path) -> Config:
         check_timeouts=check_timeouts,
         plugins=[file for path in plugins for file in _plugin_files(Path(file_path).parent / path, path)],
     )
+
+
+def validate_target(target: Any, key: str = "'target'") -> str:
+    """Return `target` if it's a usable http:// or https:// URL, else raise ConfigError naming it as `key`."""
+    if target is None:
+        raise ConfigError(f"{key} must be set to the URL of the site to check.")
+    if not isinstance(target, str) or not target.strip():
+        raise ConfigError(f"{key} must be the URL of the site to check, got {target!r}.")
+    if target != target.strip():
+        raise ConfigError(f"{key} must not start or end with whitespace, got {target!r}.")
+    parts = urlsplit(target)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ConfigError(f"{key} must be an http:// or https:// URL, got {target!r}.")
+    return target
 
 
 def _positive_seconds(value: Any, key: str) -> float:

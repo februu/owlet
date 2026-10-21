@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.metadata import metadata
 from itertools import groupby
@@ -16,7 +17,7 @@ from rich.table import Table
 from rich.text import Text
 
 from owlet.check import Check, Result, Status
-from owlet.config import CHECK_TIMEOUT_KEY, ConfigError, load_config
+from owlet.config import CHECK_TIMEOUT_KEY, Config, ConfigError, load_config, validate_target
 from owlet.discover import CHECKS_PACKAGE, PLUGIN_PACKAGE, discover_checks
 from owlet.owlet import ExitCode, Owlet
 from owlet.plan import resolve
@@ -50,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=package["Name"], description=package["Summary"], color=False)
     parser.add_argument("config", nargs="?", type=Path, help="config file to run, or whose plugins to include with --list-checks")
     parser.add_argument("--version", action="version", version=f"%(prog)s {package['Version']}")
+    parser.add_argument(
+        "--target",
+        metavar="URL",
+        help="check URL instead of the config's target; without a config, run every check (or the --only ones) with default options",
+    )
     parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
     parser.add_argument("-v", "--verbose", action="store_true", help="print the traceback under each ERROR result")
@@ -82,10 +88,10 @@ def _main(argv: list[str] | None) -> int:
     if args.init is not None:
         print(_starter_config(args.init, list(discover_checks().values())), end="")
         return ExitCode.OK
-    if args.config is None:
+    if args.config is None and args.target is None:
         parser.print_help()
         return ExitCode.OK
-    return _run(args.config, args.only, args.strict, args.quiet, args.verbose, args.json)
+    return _run(args.config, args.target, args.only, args.strict, args.quiet, args.verbose, args.json)
 
 
 def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown: list[str]) -> None:
@@ -96,21 +102,38 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
         flags = [flag for action in parser._actions for flag in action.option_strings]
         named = [with_suggestion(arg, flags, match_on=arg.partition("=")[0]) if arg.startswith("-") else arg for arg in unknown]
         parser.error(f"unrecognized arguments: {', '.join(named)}")
-    if args.init is not None and not args.init.strip():
-        parser.error("--init needs a TARGET URL")
+    for flag, url in (("--init", args.init), ("--target", args.target)):
+        if url is not None:
+            try:
+                validate_target(url, flag)
+            except ConfigError as e:
+                parser.error(str(e))
     modes = [flag for flag, used in (("--list-checks", args.list_checks), ("--init", args.init is not None)) if used]
     if len(modes) > 1:
         parser.error("--list-checks and --init can't be used together")
     if args.init is not None and args.config:
         parser.error("--init doesn't take a config file. Redirect its output instead: owlet --init TARGET > config.toml")
-    if not args.config and (args.only or args.strict or args.quiet or args.verbose or args.json):
-        parser.error("--only, --strict, --quiet, --verbose and --json need a config file to run")
+    if modes and args.target is not None:
+        parser.error(f"{modes[0]} doesn't take --target")
+    if not args.config and args.target is None and (args.only or args.strict or args.quiet or args.verbose or args.json):
+        parser.error("--only, --strict, --quiet, --verbose and --json need a config file or --target to run")
 
 
-def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbose: bool, as_json: bool) -> ExitCode:
+def _run(
+    config: Path | None, target: str | None, only: list[str] | None, strict: bool, quiet: bool, verbose: bool, as_json: bool
+) -> ExitCode:
+    """Run `config`, or with no config, every check (or the `only` ones) against `target` with default options."""
     try:
-        settings = load_config(config)
-        owlet = Owlet(resolve(settings, discover_checks(settings.plugins), only=only, strict=strict))
+        if config is not None:
+            settings = load_config(config)
+            if target is not None:
+                settings = replace(settings, target=target)
+            available = discover_checks(settings.plugins)
+        else:
+            assert target is not None
+            available = discover_checks()
+            settings = Config(target=target, active_checks=list(available))
+        owlet = Owlet(resolve(settings, available, only=only, strict=strict))
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return ExitCode.USAGE_ERROR

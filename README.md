@@ -41,6 +41,12 @@ uv run owlet --init https://example.com > config.toml    # config.toml is git-ig
 uv run owlet config.toml
 ```
 
+For a quick check without a config file, pass the URL. This runs every check with default options:
+
+```sh
+uv run owlet --target https://example.com
+```
+
 In Windows PowerShell 5.1, `>` saves the file as UTF-16, which owlet rejects because TOML must be UTF-8. Use `uv run owlet --init https://example.com | Out-File -Encoding utf8 config.toml` there instead. PowerShell 7 and other shells save UTF-8 already.
 
 `--init` enables every check and lists every option, commented out at its default. Results print in the order the checks are listed in `active_checks`, followed by a count per status.
@@ -48,13 +54,14 @@ In Windows PowerShell 5.1, `>` saves the file as UTF-16, which owlet rejects bec
 ## Cli
 
 ```
-usage: owlet [-h] [--version] [--only CHECK] [--strict] [-v] [-q] [--json] [--list-checks] [--init TARGET] [config]
+usage: owlet [-h] [--version] [--target URL] [--only CHECK] [--strict] [-v] [-q] [--json] [--list-checks] [--init TARGET] [config]
 ```
 
 Running `owlet` with no arguments shows the help.
 
 | Option | Effect |
 |---|---|
+| `--target URL` | Checks `URL` instead of the config's `target`. Without a config file, runs every check, or the `--only` ones, with default options: `owlet --target https://example.com --only http_status`. |
 | `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
 | `-v`, `--verbose` | Prints the traceback under each `ERROR` result, to debug the check that crashed. `--json` always includes it. |
