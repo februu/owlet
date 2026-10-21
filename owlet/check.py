@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import inspect
 import json
 import pkgutil
@@ -123,23 +124,28 @@ class Check:
     async def run(self, ctx: Context, options: Mapping[str, Any], timeout: float | None = None) -> list[Result]:
         deadline = asyncio.timeout(timeout)
         started = time.perf_counter()
+        # Filled in as the check produces results, so ones yielded before a crash or timeout are kept.
+        results: list[Result] = []
         try:
             async with deadline:
-                results = await self._collect(ctx, options)
+                await self._collect(ctx, options, results)
+            if not results:
+                results.append(Result(Status.ERROR, "Check produced no results."))
         except Exception as e:  # noqa: BLE001 - a failing check must not abort the other checks
             if deadline.expired():
-                results = [Result(Status.FAIL, f"Timed out after {timeout:g}s.")]
+                results.append(Result(Status.FAIL, f"Timed out after {timeout:g}s."))
             else:
-                results = [_text_result(Status.FAIL if _is_network_error(e) else Status.ERROR, _describe(e))]
-        if not results:
-            results = [Result(Status.ERROR, "Check produced no results.")]
+                results.append(_text_result(Status.FAIL if _is_network_error(e) else Status.ERROR, _describe(e)))
         duration = time.perf_counter() - started
         return [replace(result, check_name=self.name, duration_seconds=duration) for result in results]
 
-    async def _collect(self, ctx: Context, options: Mapping[str, Any]) -> list[Result]:
+    async def _collect(self, ctx: Context, options: Mapping[str, Any], results: list[Result]) -> None:
         if inspect.isasyncgenfunction(self.func):
-            return _as_list([result async for result in self.func(ctx, **options)])
-        return _as_list(await cast(Awaitable[CheckOutput], self.func(ctx, **options)))
+            async with contextlib.aclosing(self.func(ctx, **options)) as generator:
+                async for result in generator:
+                    results.append(_require_result(result))
+        else:
+            results.extend(_as_list(await cast(Awaitable[CheckOutput], self.func(ctx, **options))))
 
 
 LOCAL_OS_ERRORS = (FileNotFoundError, FileExistsError, IsADirectoryError, NotADirectoryError, PermissionError)
@@ -196,11 +202,13 @@ def _as_list(output: Any) -> list[Result]:
         return [output]
     if isinstance(output, str) or not isinstance(output, Iterable):
         raise TypeError(f"Check returned {type(output).__name__}, expected a Result or an iterable of Results.")
-    results = list(output)
-    for result in results:
-        if not isinstance(result, Result):
-            raise TypeError(f"Check produced {type(result).__name__}, expected Result.")
-    return results
+    return [_require_result(result) for result in output]
+
+
+def _require_result(result: Any) -> Result:
+    if not isinstance(result, Result):
+        raise TypeError(f"Check produced {type(result).__name__}, expected Result.")
+    return result
 
 
 _registry: dict[str, Check] = {}
