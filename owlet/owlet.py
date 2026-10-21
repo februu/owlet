@@ -26,7 +26,6 @@ class ExitCode(IntEnum):
 
 
 class Owlet:
-
     def __init__(self, config: Config):
         self._target: str = config.target
         self._strict: bool = config.strict
@@ -63,7 +62,7 @@ class Owlet:
         self._validate_required_checks_are_available(list(check_options))
         return {name: check.resolve_options(check_options.get(name, {})) for name, check in self._available_checks.items()}
 
-    def _validate_required_checks_are_available(self, required_checks : list[str]):
+    def _validate_required_checks_are_available(self, required_checks: list[str]):
         missing = [check for check in required_checks if check not in self._available_checks]
         if missing:
             raise ConfigError(f"Unknown checks: {', '.join(with_suggestion(name, self._available_checks) for name in sorted(missing))}")

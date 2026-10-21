@@ -8,7 +8,6 @@ import httpx
 
 @dataclass
 class Context:
-
     target: str
     http_client: httpx.AsyncClient
     _cache: dict[Hashable, asyncio.Task] = field(default_factory=dict, init=False, repr=False)

@@ -40,18 +40,18 @@ class Status(StrEnum):
 class Result:
     """Represents the result of a check."""
 
-    status : Status
-    summary : str
+    status: Status
+    summary: str
     """One line saying what the check found. Anything longer goes in `details`."""
-    name : str | None = None
+    name: str | None = None
     """Optional label for one of several results from the same check, e.g. a header name."""
-    details : Sequence[str] = ()
+    details: Sequence[str] = ()
     """Extra lines for people, e.g. each broken link. Printed indented under `summary`."""
-    data : Mapping[str, Any] = field(default_factory=dict)
+    data: Mapping[str, Any] = field(default_factory=dict)
     """Values for scripts, e.g. {"days_left": 69}. Must be JSON-serializable; only shown in JSON output."""
-    check_name : str = ""
+    check_name: str = ""
     """Filled in by the runner with the name of the check that produced this result."""
-    duration_seconds : float | None = None
+    duration_seconds: float | None = None
     """Filled in by the runner with how long the check took. Every result from one check shares it."""
 
     def __post_init__(self):
@@ -83,16 +83,17 @@ type CheckOutput = Result | Iterable[Result]
 type CheckFunction = Callable[Concatenate[Context, ...], Awaitable[CheckOutput] | AsyncIterator[Result]]
 """An async function or async generator. Takes the Context positionally, plus any options as keyword-only parameters with defaults."""
 
+
 @dataclass(frozen=True)
 class Check:
     """Represents a single check."""
 
-    name : str
-    description : str | None
-    func : CheckFunction
-    options : Mapping[str, inspect.Parameter]
+    name: str
+    description: str | None
+    func: CheckFunction
+    options: Mapping[str, inspect.Parameter]
     """Configurable options, taken from the function's keyword-only parameters."""
-    validate : Callable[..., None] | None = None
+    validate: Callable[..., None] | None = None
     """Called with every option as a keyword argument when the config loads; raises ConfigError for unusable values."""
 
     def resolve_options(self, values: Mapping[str, Any]) -> dict[str, Any]:
@@ -108,9 +109,7 @@ class Check:
             try:
                 resolved[key] = _coerce(value, annotation)
             except TypeError:
-                raise ConfigError(
-                    f"Option '{self.name}.{key}' must be {_type_name(annotation)}, got {value!r}."
-                ) from None
+                raise ConfigError(f"Option '{self.name}.{key}' must be {_type_name(annotation)}, got {value!r}.") from None
         if self.validate:
             defaults = {name: param.default for name, param in self.options.items()}
             try:
