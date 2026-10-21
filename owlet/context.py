@@ -25,6 +25,16 @@ class Context:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
 
-    def get(self, url: str) -> Awaitable[httpx.Response]:
-        """GET `url` following redirects, shared across all checks in this run."""
-        return self._once(("GET", url), lambda: self.http_client.get(url, follow_redirects=True))
+    def get(self, url: str, *, follow_redirects: bool = True) -> Awaitable[httpx.Response]:
+        """GET `url`, sent once per run and shared with every check that asks for the same URL."""
+        return self._request("GET", url, follow_redirects)
+
+    def head(self, url: str, *, follow_redirects: bool = True) -> Awaitable[httpx.Response]:
+        """HEAD `url`, sent once per run and shared with every check that asks for the same URL."""
+        return self._request("HEAD", url, follow_redirects)
+
+    def _request(self, method: str, url: str, follow_redirects: bool) -> Awaitable[httpx.Response]:
+        # Normalize so spellings of one URL share a request: `https://Example.com:443` and `https://example.com/#top` are the same.
+        parsed = httpx.URL(url).copy_with(fragment=None)
+        key = (method, parsed.scheme, parsed.host, parsed.port, parsed.raw_path, follow_redirects)
+        return self._once(key, lambda: self.http_client.request(method, parsed, follow_redirects=follow_redirects))
