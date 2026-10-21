@@ -15,8 +15,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from owlet.check import Check, Result, Status, discover_checks
+from owlet.check import Check, Result, Status
 from owlet.config import ConfigError, load_config
+from owlet.discover import CHECKS_PACKAGE, PLUGIN_PACKAGE, discover_checks
 from owlet.owlet import ExitCode, Owlet
 from owlet.plan import resolve
 from owlet.suggest import with_suggestion
@@ -47,7 +48,7 @@ def _print_table(table: Table) -> None:
 def build_parser() -> argparse.ArgumentParser:
     package = metadata("owlet")
     parser = argparse.ArgumentParser(prog=package["Name"], description=package["Summary"], color=False)
-    parser.add_argument("config", nargs="?", type=Path, help="config file to run")
+    parser.add_argument("config", nargs="?", type=Path, help="config file to run, or whose plugins to include with --list-checks")
     parser.add_argument("--version", action="version", version=f"%(prog)s {package['Version']}")
     parser.add_argument("--only", action="append", metavar="CHECK", help="run only this check; repeat this option for several checks")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures, overriding the config file setting")
@@ -77,7 +78,7 @@ def _main(argv: list[str] | None) -> int:
     _validate(parser, args, unknown)
 
     if args.list_checks:
-        return _list_checks()
+        return _list_checks(args.config)
     if args.init is not None:
         print(_starter_config(args.init, list(discover_checks().values())), end="")
         return ExitCode.OK
@@ -100,16 +101,16 @@ def _validate(parser: argparse.ArgumentParser, args: argparse.Namespace, unknown
     modes = [flag for flag, used in (("--list-checks", args.list_checks), ("--init", args.init is not None)) if used]
     if len(modes) > 1:
         parser.error("--list-checks and --init can't be used together")
-    if modes and args.config:
-        hint = " Redirect its output instead: owlet --init TARGET > config.toml" if args.init is not None else ""
-        parser.error(f"{modes[0]} doesn't take a config file.{hint}")
+    if args.init is not None and args.config:
+        parser.error("--init doesn't take a config file. Redirect its output instead: owlet --init TARGET > config.toml")
     if not args.config and (args.only or args.strict or args.quiet or args.verbose or args.json):
         parser.error("--only, --strict, --quiet, --verbose and --json need a config file to run")
 
 
 def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbose: bool, as_json: bool) -> ExitCode:
     try:
-        owlet = Owlet(resolve(load_config(config), discover_checks(), only=only, strict=strict))
+        settings = load_config(config)
+        owlet = Owlet(resolve(settings, discover_checks(settings.plugins), only=only, strict=strict))
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return ExitCode.USAGE_ERROR
@@ -127,11 +128,17 @@ def _run(config: Path, only: list[str] | None, strict: bool, quiet: bool, verbos
     return exit_code
 
 
-def _list_checks() -> ExitCode:
+def _list_checks(config: Path | None) -> ExitCode:
+    """List every available check, including the plugins of `config` if given."""
+    try:
+        available = discover_checks(load_config(config).plugins if config else ())
+    except ConfigError as e:
+        print(f"Config error: {e}", file=sys.stderr)
+        return ExitCode.USAGE_ERROR
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column()
-    for group, checks in groupby(discover_checks().values(), key=_group):
+    for group, checks in groupby(available.values(), key=_group):
         table.add_row("", "")
         table.add_row(f"== {group} ==", "")
         for check in checks:
@@ -145,8 +152,12 @@ def _list_checks() -> ExitCode:
 
 
 def _group(check: Check) -> str:
-    """The check's module name, e.g. `tls` for owlet.checks.tls."""
-    return check.func.__module__.rpartition(".")[2]
+    """The check's module: the short name for built-in checks and plugin files, e.g. `tls` for owlet.checks.tls, else the full name."""
+    module = check.func.__module__
+    for package in (CHECKS_PACKAGE, PLUGIN_PACKAGE):
+        if module.startswith(f"{package}."):
+            return module.removeprefix(f"{package}.")
+    return module
 
 
 def _print_results(shown: list[Result], results: list[Result], duration: float, verbose: bool) -> None:

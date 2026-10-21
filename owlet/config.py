@@ -26,9 +26,11 @@ class Config:
     """How long one check may run before it's stopped and reported as FAIL."""
     check_options: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Per-check options from the [checks.<name>] tables, keyed by check name."""
+    plugins: list[Path] = field(default_factory=list)
+    """Python files with extra checks to import, from `plugins` with folders expanded to the modules inside them."""
 
 
-KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks"}
+KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks", "plugins"}
 
 
 def load_config(file_path: Path) -> Config:
@@ -84,10 +86,26 @@ def load_config(file_path: Path) -> Config:
         if not isinstance(options, dict):
             raise ConfigError(f"Options for check '{name}' must be a [checks.{name}] table.")
 
+    plugins = data.get("plugins", [])
+    if not isinstance(plugins, list) or not all(isinstance(path, str) for path in plugins):
+        raise ConfigError(f"'plugins' must be a list of paths to .py files or folders, got {plugins!r}.")
+
     return Config(
         target=target,
         active_checks=active_checks,
         strict=strict,
         check_timeout_seconds=float(check_timeout_seconds),
         check_options=check_options,
+        plugins=[file for path in plugins for file in _plugin_files(Path(file_path).parent / path, path)],
     )
+
+
+def _plugin_files(path: Path, entry: str) -> list[Path]:
+    """The .py files a `plugins` entry stands for: the file itself, or every module in a folder except `_private.py` ones."""
+    if path.is_dir():
+        return sorted(file for file in path.glob("*.py") if not file.name.startswith("_"))
+    if not path.is_file():
+        raise ConfigError(f"Plugin '{entry}' not found at '{path}'. Plugin paths are relative to the config file.")
+    if path.suffix != ".py":
+        raise ConfigError(f"Plugin '{entry}' must be a .py file or a folder of them.")
+    return [path]

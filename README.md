@@ -16,6 +16,7 @@ _Owlet is a small async website health checker configured from one TOML file._
 - Exit codes for CI and cron, with a strict mode that treats warnings as failures
 - Checks run concurrently and share GET responses, so a page several checks need is downloaded once
 - New checks are picked up automatically: write a function in `owlet/checks/` and decorate it with `@check`
+- Plugins: load checks from your own `.py` files listed in the config, or from installed packages
 - A CLI to run checks, list them with their options, and generate a starter config
 - JSON output for scripts and dashboards
 
@@ -59,7 +60,7 @@ Running `owlet` with no arguments shows the help.
 | `-v`, `--verbose` | Prints the traceback under each `ERROR` result, to debug the check that crashed. `--json` always includes it. |
 | `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode). If any result fails, the count per status follows them. If none fail, it prints nothing at all, not even the counts, so cron only emails you about problems. With `--json`, it always prints the document, with an empty `results` array if none fail. |
 | `--json` | Prints results as JSON instead of a table. See [JSON output](#json-output). With `--quiet`, `results` lists only the failing results. |
-| `--list-checks` | Lists every check with what it verifies and its options, read from the code. |
+| `--list-checks` | Lists every check with what it verifies and its options, read from the code. Pass a config file too (`owlet --list-checks config.toml`) to include the checks from its `plugins`. |
 | `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
 
 ## Configuration
@@ -71,6 +72,7 @@ Running `owlet` with no arguments shows the help.
 | `strict` | bool | `false` | Treat `WARN` as a failure when deciding the exit code. |
 | `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
+| `plugins` | list of strings | `[]` | `.py` files, or folders of them, with extra checks. Paths are relative to the config file. See [plugins](#plugins). |
 
 ```toml
 target = "https://example.com"
@@ -187,3 +189,24 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
 - **Docstring:** shown by `owlet --list-checks`, so write it as a one-line summary of what passing means.
 
 Checks must be `async def` functions, either returning their results or `yield`ing them as an async generator. A plain `def` is rejected when owlet loads the checks.
+
+### Plugins
+
+To keep your checks out of owlet's source, write them the same way in your own files and list them in the config:
+
+```toml
+plugins = ["my_checks.py", "checks/"]
+active_checks = ["http_status", "has_title"]
+```
+
+Each entry is a `.py` file or a folder, relative to the config file. For a folder, owlet imports every `.py` file in it except those starting with `_`. Plugin files run as Python code when the config loads, so only list files you trust. Two plugin files can't share a file name. Plugin files are imported on their own, not as part of a package, so import from other plugin files by adding their folder to `sys.path` or by turning them into a package.
+
+To share checks as an installed package instead, register the module that holds them in the `owlet.checks` entry point group. Owlet imports it on every run, and its checks show in `--list-checks` and `--init` without any `plugins` entry:
+
+```toml
+# pyproject.toml of your package
+[project.entry-points."owlet.checks"]
+my_checks = "my_package.checks"
+```
+
+Check names are global: a plugin check with the same name as another check stops owlet with exit code `3`.

@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import inspect
 import json
-import pkgutil
 import time
 from collections.abc import (
     AsyncIterator,
@@ -14,7 +13,6 @@ from collections.abc import (
 )
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from importlib import import_module
 from traceback import StackSummary, TracebackException
 from typing import Any, Concatenate, cast, get_args, get_origin
 
@@ -253,7 +251,7 @@ class Registry:
 
 
 registry = Registry()
-"""The registry `@check` adds to, and that discover_checks returns."""
+"""The registry `@check` adds to, and that owlet.discover.discover_checks returns."""
 
 
 def check(func=None, *, validate: Callable[..., None] | None = None):
@@ -283,13 +281,3 @@ def _option_parameters(func) -> dict[str, inspect.Parameter]:
         if param.kind is not inspect.Parameter.KEYWORD_ONLY or param.default is inspect.Parameter.empty:
             raise TypeError(f"Check '{func.__name__}': option '{param.name}' must be keyword-only with a default.")
     return {param.name: param for param in option_params}
-
-
-CHECKS_PACKAGE = "owlet.checks"
-
-
-def discover_checks() -> dict[str, Check]:
-    """Import every module in owlet.checks so their @check decorators run, then return all registered checks."""
-    for module_info in pkgutil.iter_modules(import_module(CHECKS_PACKAGE).__path__):
-        import_module(f"{CHECKS_PACKAGE}.{module_info.name}")
-    return registry.checks
