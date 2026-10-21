@@ -16,7 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from owlet.check import Check, Result, Status
-from owlet.config import ConfigError, load_config
+from owlet.config import CHECK_TIMEOUT_KEY, ConfigError, load_config
 from owlet.discover import CHECKS_PACKAGE, PLUGIN_PACKAGE, discover_checks
 from owlet.owlet import ExitCode, Owlet
 from owlet.plan import resolve
@@ -226,7 +226,12 @@ def _starter_config(target: str, checks: list[Check]) -> str:
     for group, group_checks in groupby(checks, key=_group):
         lines.append(f"    # {group}")
         lines.extend(f'    "{check.name}",' for check in group_checks)
-    lines += ["]", "", "# Per-check options. Uncomment a table and a line to change a default."]
+    lines += [
+        "]",
+        "",
+        "# Per-check options. Uncomment a table and a line to change a default.",
+        f"# Every [checks.<name>] table also takes {CHECK_TIMEOUT_KEY}, overriding check_timeout_seconds for that check.",
+    ]
     for check in checks:
         if check.options:
             lines += ["", f"# [checks.{check.name}]"]

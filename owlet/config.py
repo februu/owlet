@@ -25,10 +25,15 @@ class Config:
     check_timeout_seconds: float = 30.0
     """How long one check may run before it's stopped and reported as FAIL."""
     check_options: dict[str, dict[str, Any]] = field(default_factory=dict)
-    """Per-check options from the [checks.<name>] tables, keyed by check name."""
+    """Per-check options from the [checks.<name>] tables, keyed by check name, without `timeout_seconds`."""
+    check_timeouts: dict[str, float] = field(default_factory=dict)
+    """Per-check `timeout_seconds` from the [checks.<name>] tables, overriding check_timeout_seconds for that check."""
     plugins: list[Path] = field(default_factory=list)
     """Python files with extra checks to import, from `plugins` with folders expanded to the modules inside them."""
 
+
+CHECK_TIMEOUT_KEY = "timeout_seconds"
+"""Reserved in every [checks.<name>] table for that check's timeout, so no check may have an option by this name."""
 
 KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks", "plugins"}
 
@@ -74,17 +79,17 @@ def load_config(file_path: Path) -> Config:
     if not isinstance(strict, bool):
         raise ConfigError(f"'strict' must be true or false, got {strict!r}.")
 
-    check_timeout_seconds = data.get("check_timeout_seconds", Config.check_timeout_seconds)
-    # bool is a subclass of int, but `true` for a number is almost certainly a mistake.
-    if isinstance(check_timeout_seconds, bool) or not isinstance(check_timeout_seconds, (int, float)) or not check_timeout_seconds > 0:
-        raise ConfigError(f"'check_timeout_seconds' must be a number greater than 0, got {check_timeout_seconds!r}.")
+    check_timeout_seconds = _positive_seconds(data.get("check_timeout_seconds", Config.check_timeout_seconds), "check_timeout_seconds")
 
     check_options = data.get("checks", {})
     if not isinstance(check_options, dict):
         raise ConfigError("'checks' must be a table of [checks.<name>] tables.")
+    check_timeouts = {}
     for name, options in check_options.items():
         if not isinstance(options, dict):
             raise ConfigError(f"Options for check '{name}' must be a [checks.{name}] table.")
+        if CHECK_TIMEOUT_KEY in options:
+            check_timeouts[name] = _positive_seconds(options.pop(CHECK_TIMEOUT_KEY), f"checks.{name}.{CHECK_TIMEOUT_KEY}")
 
     plugins = data.get("plugins", [])
     if not isinstance(plugins, list) or not all(isinstance(path, str) for path in plugins):
@@ -94,10 +99,18 @@ def load_config(file_path: Path) -> Config:
         target=target,
         active_checks=active_checks,
         strict=strict,
-        check_timeout_seconds=float(check_timeout_seconds),
+        check_timeout_seconds=check_timeout_seconds,
         check_options=check_options,
+        check_timeouts=check_timeouts,
         plugins=[file for path in plugins for file in _plugin_files(Path(file_path).parent / path, path)],
     )
+
+
+def _positive_seconds(value: Any, key: str) -> float:
+    # bool is a subclass of int, but `true` for a number is almost certainly a mistake.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+        raise ConfigError(f"'{key}' must be a number greater than 0, got {value!r}.")
+    return float(value)
 
 
 def _plugin_files(path: Path, entry: str) -> list[Path]:

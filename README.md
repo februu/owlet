@@ -70,7 +70,7 @@ Running `owlet` with no arguments shows the help.
 | `target` | string | | Required. `http://` or `https://` URL of the site to check. |
 | `active_checks` | list of strings | | Checks to run, in output order. Duplicates are ignored. Must list at least one check, unless you pass `--only`. |
 | `strict` | bool | `false` | Treat `WARN` as a failure when deciding the exit code. |
-| `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. |
+| `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. Override it for one check with `timeout_seconds` in its `[checks.<name>]` table. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
 | `plugins` | list of strings | `[]` | `.py` files, or folders of them, with extra checks. Paths are relative to the config file. See [plugins](#plugins). |
 
@@ -84,6 +84,9 @@ limit_seconds = 0.8
 
 [checks.ssl_certificate]
 warn_days = 45
+
+[checks.broken_links]
+timeout_seconds = 120    # every check takes this, overriding check_timeout_seconds
 ```
 
 Owlet validates the whole config before it sends any request. Unknown keys, unknown checks, unknown options, values of the wrong type and option values a check can't use all stop the run with a `Config error:` message and exit code 2. Options for checks that aren't in `active_checks` are validated too, so a typo doesn't stay hidden until you turn the check on.
@@ -171,9 +174,9 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
 ```
 
 - **Context:** the first parameter. `ctx.target` is the configured URL, and `ctx.get(url)` sends a GET once per run and shares the response with every other check. Requests made directly through `ctx.http_client` aren't shared.
-- **Options:** keyword-only parameters after `*`, each with a default. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
+- **Options:** keyword-only parameters after `*`, each with a default. `timeout_seconds` is reserved for the check's timeout, so an option can't use that name. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
 - **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header. Every `Result` needs a status and a `summary`: one non-empty line saying what the check found. A summary with a line break becomes an `ERROR`, so put extra lines for people in `details=` (a list of strings, printed indented under the summary), as `broken_links` does for each broken link. Put values for scripts in `data=` (a JSON-serializable dict, only shown in `--json` output), such as `data={"days_left": 69}`. Owlet fills in `check_name` and `duration_seconds` itself.
-- **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`.
+- **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`, including filesystem errors such as `FileNotFoundError` or `PermissionError`, which point at a bug in the check rather than the site. If a check that `yield`s results crashes or times out partway, the results it already yielded are kept, followed by the `FAIL` or `ERROR`.
 - **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it for every available check when the config loads, even checks that aren't in `active_checks` or have no `[checks.<name>]` table (then with the defaults), so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
 
   ```python

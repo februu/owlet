@@ -32,7 +32,7 @@ def resolve(config: Config, available: Mapping[str, Check], *, only: Sequence[st
     """
     active = list(dict.fromkeys(only or config.active_checks))
     _require_known(active, available)
-    _require_known(config.check_options, available)
+    _require_known(config.check_options.keys() | config.check_timeouts.keys(), available)
     # Options are validated for every available check, not just active ones, so a typo doesn't stay hidden until the check is turned on.
     options = {name: check.resolve_options(config.check_options.get(name, {})) for name, check in available.items()}
     if not active:
@@ -40,7 +40,9 @@ def resolve(config: Config, available: Mapping[str, Check], *, only: Sequence[st
     return Plan(
         target=config.target,
         strict=strict or config.strict,
-        checks=[PlannedCheck(available[name], options[name], config.check_timeout_seconds) for name in active],
+        checks=[
+            PlannedCheck(available[name], options[name], config.check_timeouts.get(name, config.check_timeout_seconds)) for name in active
+        ],
     )
 
 

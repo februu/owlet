@@ -18,7 +18,7 @@ from typing import Any, Concatenate, cast, get_args, get_origin
 
 import httpx
 
-from owlet.config import ConfigError
+from owlet.config import CHECK_TIMEOUT_KEY, ConfigError
 from owlet.context import Context
 from owlet.suggest import with_suggestion
 
@@ -102,8 +102,8 @@ class Check:
         """Validate options from the config against the function's signature. Unset options keep their defaults."""
         unknown = sorted(values.keys() - self.options.keys())
         if unknown:
-            available = ", ".join(self.options) or "none"
-            named = ", ".join(with_suggestion(key, self.options) for key in unknown)
+            available = ", ".join([*self.options, CHECK_TIMEOUT_KEY])
+            named = ", ".join(with_suggestion(key, [*self.options, CHECK_TIMEOUT_KEY]) for key in unknown)
             raise ConfigError(f"Unknown option(s) for check '{self.name}': {named}. Available: {available}.")
         resolved = {}
         for key, value in values.items():
@@ -280,4 +280,6 @@ def _option_parameters(func) -> dict[str, inspect.Parameter]:
     for param in option_params:
         if param.kind is not inspect.Parameter.KEYWORD_ONLY or param.default is inspect.Parameter.empty:
             raise TypeError(f"Check '{func.__name__}': option '{param.name}' must be keyword-only with a default.")
+        if param.name == CHECK_TIMEOUT_KEY:
+            raise TypeError(f"Check '{func.__name__}': '{CHECK_TIMEOUT_KEY}' is reserved for the check's timeout; rename the option.")
     return {param.name: param for param in option_params}
