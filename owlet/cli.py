@@ -30,6 +30,18 @@ STATUS_STYLES = {
 }
 
 console = Console()
+if not console.is_terminal:
+    # Piped or in CI, rich falls back to 80 columns and wraps or crops long lines. Let lines run to their full length instead.
+    console = Console(width=1_000_000)
+
+
+def _print_table(table: Table) -> None:
+    if console.is_terminal:
+        console.print(table)
+        return
+    with console.capture() as capture:
+        console.print(table)
+    print("\n".join(line.rstrip() for line in capture.get().splitlines()))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,7 +144,7 @@ def _list_checks() -> ExitCode:
             for name, param in check.options.items():
                 option = f"{name}: {inspect.formatannotation(param.annotation)} = {param.default!r}"
                 table.add_row("", Text(option, style="dim"))
-    console.print(table)
+    _print_table(table)
     console.print()
     return ExitCode.OK
 
@@ -151,7 +163,7 @@ def _print_results(shown: list[Result], results: list[Result], duration: float) 
     for result in shown:
         text = "\n".join([result.summary, *(f"  {line}" for line in result.details)])
         table.add_row(Text(result.status, style=STATUS_STYLES[result.status]), Text(result.label), Text(text))
-    console.print(table)
+    _print_table(table)
 
     counts = Counter(result.status for result in results)
     print("\n" + ", ".join(f"{counts[status]} {status.lower()}" for status in Status if counts[status]) + f" in {duration:.2f}s")
