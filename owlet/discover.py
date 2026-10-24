@@ -33,6 +33,15 @@ def discover_checks(plugins: Sequence[Path] = ()) -> dict[str, Check]:
     return registry.checks
 
 
+def check_group(check: Check) -> str:
+    """The check's module: the short name for built-in checks and plugin files, e.g. `tls` for owlet.checks.tls, else the full name."""
+    module = check.func.__module__
+    for package in (CHECKS_PACKAGE, PLUGIN_PACKAGE):
+        if module.startswith(f"{package}."):
+            return module.removeprefix(f"{package}.")
+    return module
+
+
 def _import_file(path: Path) -> None:
     name = f"{PLUGIN_PACKAGE}.{path.stem}"
     if existing := sys.modules.get(name):

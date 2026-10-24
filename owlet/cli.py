@@ -18,7 +18,7 @@ from rich.text import Text
 
 from owlet.check import Check, Result, Status
 from owlet.config import CHECK_TIMEOUT_KEY, Config, ConfigError, HttpConfig, load_config, validate_target
-from owlet.discover import CHECKS_PACKAGE, PLUGIN_PACKAGE, discover_checks
+from owlet.discover import check_group, discover_checks
 from owlet.owlet import ExitCode, Owlet
 from owlet.plan import resolve
 from owlet.suggest import with_suggestion
@@ -161,7 +161,7 @@ def _list_checks(config: Path | None) -> ExitCode:
     table = Table.grid(padding=(0, 2))
     table.add_column(no_wrap=True)
     table.add_column()
-    for group, checks in groupby(available.values(), key=_group):
+    for group, checks in groupby(available.values(), key=check_group):
         table.add_row("", "")
         table.add_row(f"== {group} ==", "")
         for check in checks:
@@ -172,15 +172,6 @@ def _list_checks(config: Path | None) -> ExitCode:
     _print_table(table)
     console.print()
     return ExitCode.OK
-
-
-def _group(check: Check) -> str:
-    """The check's module: the short name for built-in checks and plugin files, e.g. `tls` for owlet.checks.tls, else the full name."""
-    module = check.func.__module__
-    for package in (CHECKS_PACKAGE, PLUGIN_PACKAGE):
-        if module.startswith(f"{package}."):
-            return module.removeprefix(f"{package}.")
-    return module
 
 
 def _print_results(shown: list[Result], results: list[Result], duration: float, verbose: bool) -> None:
@@ -214,20 +205,7 @@ def _results_json(
             "duration_seconds": round(duration, 3),
             "exit_code": int(exit_code),
             "summary": {status: counts[status] for status in Status},
-            "results": [
-                {
-                    "check": result.check_name,
-                    "name": result.name,
-                    "status": result.status,
-                    "summary": result.summary,
-                    "details": list(result.details),
-                    "data": result.data,
-                    "duration_seconds": round(result.duration_seconds, 3) if result.duration_seconds is not None else None,
-                    "fails_run": owlet.is_failure(result),
-                    "traceback": result.traceback,
-                }
-                for result in shown
-            ],
+            "results": [owlet.result_json(result) for result in shown],
         },
         indent=2,
         allow_nan=False,
@@ -246,7 +224,7 @@ def _starter_config(target: str, checks: list[Check]) -> str:
         "",
         "active_checks = [",
     ]
-    for group, group_checks in groupby(checks, key=_group):
+    for group, group_checks in groupby(checks, key=check_group):
         lines.append(f"    # {group}")
         lines.extend(f'    "{check.name}",' for check in group_checks)
     http = HttpConfig()

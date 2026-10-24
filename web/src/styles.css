@@ -1,0 +1,58 @@
+body {
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}
+
+.mono {
+  font-family: var(--mantine-font-family-monospace);
+}
+
+/* A check card, with a stripe in the color of its worst status. */
+.check-card {
+  border-left: 3px solid var(--stripe, var(--mantine-color-default-border));
+  transition: border-color 150ms ease;
+}
+
+.check-row {
+  border-radius: var(--mantine-radius-md);
+  transition: background-color 120ms ease;
+}
+
+.check-row:hover {
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.stat-tile {
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.stat-tile:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.stat-tile[data-active] {
+  border-color: var(--tile-color);
+  box-shadow: 0 0 0 1px var(--tile-color);
+}
+
+.stat-tile[data-empty] {
+  opacity: 0.55;
+}
+
+.history-item {
+  display: block;
+  width: 100%;
+  padding: var(--mantine-spacing-sm);
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid var(--mantine-color-default-border);
+  transition: background-color 120ms ease;
+}
+
+.history-item:hover,
+.history-item[data-active] {
+  background: light-dark(var(--mantine-color-indigo-0), rgba(76, 110, 245, 0.12));
+}

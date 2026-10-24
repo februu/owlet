@@ -1,13 +1,14 @@
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import IntEnum
+from typing import Any
 
 import httpx
 
 from owlet.check import Result, Status
 from owlet.config import HttpConfig
 from owlet.context import Context
-from owlet.plan import Plan
+from owlet.plan import Plan, PlannedCheck
 
 
 class ExitCode(IntEnum):
@@ -31,14 +32,23 @@ class Owlet:
     def __init__(self, plan: Plan):
         self.plan = plan
 
-    async def run(self) -> list[Result]:
+    async def run(self, on_check_done: Callable[[list[Result]], None] | None = None) -> list[Result]:
+        """Run every planned check concurrently and return their results in plan order.
+
+        `on_check_done` is called with each check's results as soon as that check finishes, e.g. to stream them.
+        """
+
+        async def run_one(planned: PlannedCheck, context: Context) -> list[Result]:
+            results = await planned.check.run(context, planned.options, planned.timeout_seconds)
+            if on_check_done:
+                on_check_done(results)
+            return results
+
         async with _http_client(self.plan.http, self.plan.target) as http_client:
             context = Context(target=self.plan.target, http_client=http_client, timeout_seconds=self.plan.http.timeout_seconds)
             try:
                 async with asyncio.TaskGroup() as tg:
-                    tasks = [
-                        tg.create_task(planned.check.run(context, planned.options, planned.timeout_seconds)) for planned in self.plan.checks
-                    ]
+                    tasks = [tg.create_task(run_one(planned, context)) for planned in self.plan.checks]
             finally:
                 await context.close()
             return [result for task in tasks for result in task.result()]
@@ -49,6 +59,20 @@ class Owlet:
 
     def exit_code(self, results: list[Result]) -> ExitCode:
         return ExitCode.CHECKS_FAILED if any(self.is_failure(result) for result in results) else ExitCode.OK
+
+    def result_json(self, result: Result) -> dict[str, Any]:
+        """The result as an object in `--json` output, with `fails_run` judged for this run."""
+        return {
+            "check": result.check_name,
+            "name": result.name,
+            "status": result.status,
+            "summary": result.summary,
+            "details": list(result.details),
+            "data": result.data,
+            "duration_seconds": round(result.duration_seconds, 3) if result.duration_seconds is not None else None,
+            "fails_run": self.is_failure(result),
+            "traceback": result.traceback,
+        }
 
 
 def _http_client(settings: HttpConfig, target: str) -> httpx.AsyncClient:

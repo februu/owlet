@@ -11,6 +11,13 @@ dependencies = [
 
 [project.scripts]
 owlet = "owlet.cli:main"
+owlet-web = "owlet.web.server:main"
+
+[project.optional-dependencies]
+web = [
+    "starlette>=1.9.0",
+    "uvicorn>=0.54.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -18,6 +25,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["owlet"]
+# The control panel's frontend is built from web/ into here, and git-ignored.
+artifacts = ["owlet/web/static/**"]
 
 [dependency-groups]
 dev = [

@@ -11,3 +11,7 @@ wheels/
 
 # Config
 config.toml
+
+# Web control panel: dependencies and the frontend build, served by owlet-web
+node_modules/
+owlet/web/static/

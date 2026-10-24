@@ -91,7 +91,11 @@ def load_config(file_path: Path) -> Config:
         raise ConfigError(f"'{file_path}' isn't valid UTF-8 (byte {e.start}). TOML files must be UTF-8.") from e
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"Invalid TOML in '{file_path}': {e}.") from e
+    return parse_config(data, Path(file_path).parent)
 
+
+def parse_config(data: dict[str, Any], base_dir: Path) -> Config:
+    """Validate a config already parsed from TOML, or built in the same shape. `plugins` paths are relative to `base_dir`."""
     unknown = sorted(data.keys() - KNOWN_KEYS)
     if unknown:
         raise ConfigError(f"Unknown config key(s): {', '.join(with_suggestion(key, KNOWN_KEYS) for key in unknown)}.")
@@ -129,7 +133,7 @@ def load_config(file_path: Path) -> Config:
         check_timeout_seconds=check_timeout_seconds,
         check_options=check_options,
         check_timeouts=check_timeouts,
-        plugins=[file for path in plugins for file in _plugin_files(Path(file_path).parent / path, path)],
+        plugins=[file for path in plugins for file in _plugin_files(base_dir / path, path)],
         http=_http_config(data.get("http", {})),
     )
 

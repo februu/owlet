@@ -19,6 +19,7 @@ _Owlet is a small async website health checker configured from one TOML file._
 - Plugins: load checks from your own `.py` files listed in the config, or from installed packages
 - A CLI to run checks, list them with their options, and generate a starter config
 - JSON output for scripts and dashboards
+- A [web control panel](#web-control-panel) to run checks from the browser and watch results stream in
 
 **Upcoming features:**
 
@@ -69,6 +70,26 @@ Running `owlet` with no arguments shows the help.
 | `--json` | Prints results as JSON instead of a table. See [JSON output](#json-output). With `--quiet`, `results` lists only the failing results. |
 | `--list-checks` | Lists every check with what it verifies and its options, read from the code. Pass a config file too (`owlet --list-checks config.toml`) to include the checks from its `plugins`. |
 | `--init TARGET` | Prints a starter config for `TARGET` to stdout. |
+
+## Web control panel
+
+A browser UI to pick checks, edit their options and HTTP settings, and watch results stream in as each check finishes. It keeps a history of runs in the browser, downloads results in the [JSON output](#json-output) format, and exports the current settings as a `config.toml`.
+
+The frontend is in `web/` (React, Mantine and Vite) and needs [Bun](https://bun.sh) to build. Build it once, then start the panel:
+
+```sh
+cd web && bun install && bun run build && cd ..
+uv run --extra web owlet-web                  # http://localhost:8765
+uv run --extra web owlet-web config.toml      # prefilled from a config file
+```
+
+```
+usage: owlet-web [-h] [--host HOST] [--port PORT] [config]
+```
+
+- With a config file, the panel starts from its settings, and runs use its `plugins` and `http.headers`. The browser can't change either: plugins import Python files, and header values may hold secrets, so the panel only shows the header names.
+- It listens on `127.0.0.1` by default and only answers requests for `localhost` or `127.0.0.1`. Anyone who can reach the panel can make owlet send requests to any URL from your machine, so think twice before using `--host 0.0.0.0`.
+- For frontend development, run `owlet-web` and `bun run dev` in `web/` side by side. Vite serves the UI with hot reload and forwards `/api` to `owlet-web` on port 8765.
 
 ## Configuration
 
