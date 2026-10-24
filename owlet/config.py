@@ -1,6 +1,9 @@
 import codecs
+import os
+import re
 import tomllib
 from dataclasses import dataclass, field
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -10,6 +13,26 @@ from owlet.suggest import with_suggestion
 
 class ConfigError(ValueError):
     """The config is invalid: unreadable file, bad TOML, unknown keys, checks or options, or values of the wrong type."""
+
+
+DEFAULT_USER_AGENT = f"owlet/{version('owlet')}"
+
+
+@dataclass(frozen=True)
+class HttpConfig:
+    """Settings for the HTTP client every check shares, from the [http] table."""
+
+    timeout_seconds: float = 5.0
+    """Timeout for each network operation: connecting, sending, waiting for data, and getting a pooled connection."""
+    user_agent: str = DEFAULT_USER_AGENT
+    """User-Agent sent with every request."""
+    headers: dict[str, str] = field(default_factory=dict)
+    """Extra headers, with ${NAME} environment variables expanded. Sent only to the target's host, and only over HTTPS for an
+    https:// target, so tokens don't reach third-party links or travel unencrypted."""
+    verify: bool = True
+    """Verify TLS certificates on HTTP requests. ssl_certificate always verifies."""
+    max_connections: int = 100
+    """Most connections open at once, across all checks."""
 
 
 @dataclass(frozen=True)
@@ -30,12 +53,23 @@ class Config:
     """Per-check `timeout_seconds` from the [checks.<name>] tables, overriding check_timeout_seconds for that check."""
     plugins: list[Path] = field(default_factory=list)
     """Python files with extra checks to import, from `plugins` with folders expanded to the modules inside them."""
+    http: HttpConfig = field(default_factory=HttpConfig)
+    """Settings for the HTTP client, from the [http] table."""
 
 
 CHECK_TIMEOUT_KEY = "timeout_seconds"
 """Reserved in every [checks.<name>] table for that check's timeout, so no check may have an option by this name."""
 
-KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks", "plugins"}
+KNOWN_KEYS = {"target", "active_checks", "strict", "check_timeout_seconds", "checks", "plugins", "http"}
+KNOWN_HTTP_KEYS = {"timeout_seconds", "user_agent", "headers", "verify", "max_connections"}
+
+HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+"""An HTTP header name: one or more token characters (RFC 9110)."""
+HEADER_VALUE = re.compile(r"[\x20-\x7e\t]*")
+"""A header value httpx can send: printable ASCII and tabs, so no line breaks that would start a new header."""
+ENV_REFERENCE = re.compile(r"\$\$|\$\{([^}]*)\}")
+"""`${NAME}` reads an environment variable in a header value; `$$` is a literal `$`."""
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def load_config(file_path: Path) -> Config:
@@ -96,6 +130,7 @@ def load_config(file_path: Path) -> Config:
         check_options=check_options,
         check_timeouts=check_timeouts,
         plugins=[file for path in plugins for file in _plugin_files(Path(file_path).parent / path, path)],
+        http=_http_config(data.get("http", {})),
     )
 
 
@@ -118,6 +153,66 @@ def _positive_seconds(value: Any, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
         raise ConfigError(f"'{key}' must be a number greater than 0, got {value!r}.")
     return float(value)
+
+
+def _http_config(data: Any) -> HttpConfig:
+    """Validate the [http] table, expanding environment variables in header values."""
+    if not isinstance(data, dict):
+        raise ConfigError("'http' must be an [http] table.")
+    unknown = sorted(data.keys() - KNOWN_HTTP_KEYS)
+    if unknown:
+        named = ", ".join(with_suggestion(key, KNOWN_HTTP_KEYS) for key in unknown)
+        if "follow_redirects" in unknown:
+            named += " (each check decides whether to follow redirects, so it can't be set for all of them)"
+        raise ConfigError(f"Unknown key(s) in [http]: {named}.")
+
+    defaults = HttpConfig()
+    timeout_seconds = _positive_seconds(data.get("timeout_seconds", defaults.timeout_seconds), "http.timeout_seconds")
+
+    user_agent = data.get("user_agent", defaults.user_agent)
+    if not isinstance(user_agent, str) or not user_agent.strip() or not HEADER_VALUE.fullmatch(user_agent):
+        raise ConfigError(f"'http.user_agent' must be a non-empty line of printable ASCII, got {user_agent!r}.")
+
+    verify = data.get("verify", defaults.verify)
+    if not isinstance(verify, bool):
+        raise ConfigError(f"'http.verify' must be true or false, got {verify!r}.")
+
+    max_connections = data.get("max_connections", defaults.max_connections)
+    if isinstance(max_connections, bool) or not isinstance(max_connections, int) or max_connections < 1:
+        raise ConfigError(f"'http.max_connections' must be a whole number of at least 1, got {max_connections!r}.")
+
+    headers = data.get("headers", {})
+    if not isinstance(headers, dict):
+        raise ConfigError(f"'http.headers' must be a table of header names and values, got {headers!r}.")
+    expanded = {}
+    for name, value in headers.items():
+        if not HEADER_NAME.fullmatch(name):
+            raise ConfigError(f"'http.headers' has an invalid header name {name!r}.")
+        if name.lower() == "user-agent":
+            raise ConfigError("Set the User-Agent with 'http.user_agent' instead of in 'http.headers'.")
+        if not isinstance(value, str):
+            raise ConfigError(f"Header 'http.headers.{name}' must be a string, got {value!r}.")
+        expanded[name] = _expand_env(value, f"http.headers.{name}")
+        if not HEADER_VALUE.fullmatch(expanded[name]):
+            raise ConfigError(f"Header 'http.headers.{name}' must be one line of printable ASCII, after expanding environment variables.")
+
+    return HttpConfig(timeout_seconds, user_agent, expanded, verify, max_connections)
+
+
+def _expand_env(value: str, key: str) -> str:
+    """Replace each `${NAME}` in `value` with that environment variable and each `$$` with `$`; an unset variable is an error."""
+
+    def replace(match: re.Match[str]) -> str:
+        if match[0] == "$$":
+            return "$"
+        name = match[1]
+        if not ENV_NAME.fullmatch(name):
+            raise ConfigError(f"'{key}' has an invalid environment variable name {name!r} in '${{{name}}}'. Use $$ for a literal $.")
+        if name not in os.environ:
+            raise ConfigError(f"'{key}' uses the environment variable {name}, which isn't set.")
+        return os.environ[name]
+
+    return ENV_REFERENCE.sub(replace, value)
 
 
 def _plugin_files(path: Path, entry: str) -> list[Path]:

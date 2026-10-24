@@ -80,6 +80,11 @@ Running `owlet` with no arguments shows the help.
 | `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. Override it for one check with `timeout_seconds` in its `[checks.<name>]` table. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
 | `plugins` | list of strings | `[]` | `.py` files, or folders of them, with extra checks. Paths are relative to the config file. See [plugins](#plugins). |
+| `http.timeout_seconds` | number | `5.0` | Timeout for each network step of a request: connecting, sending, waiting for data. `ssl_certificate` uses it for its connection too. A request that runs out of time is a `FAIL`. |
+| `http.user_agent` | string | `owlet/<version>` | User-Agent sent with every request. Some WAFs and CDNs block unfamiliar ones, so set a browser-like value if the site rejects owlet. |
+| `http.headers` | table of strings | `{}` | Extra headers, such as `Authorization`. They're sent only to the target's host, and only over HTTPS for an `https://` target, so a token never reaches the third-party links `broken_links` checks or travels unencrypted. `${NAME}` is replaced with the environment variable `NAME`, and `$$` with a literal `$`. An unset variable is a config error. Set the User-Agent with `user_agent`, not here. |
+| `http.verify` | bool | `true` | Verify TLS certificates on HTTP requests. Turn it off for sites with self-signed certificates. `ssl_certificate` always verifies, so it still reports the certificate. |
+| `http.max_connections` | int | `100` | Most connections open at once, across all checks. |
 
 ```toml
 target = "https://example.com"
@@ -94,6 +99,10 @@ warn_days = 45
 
 [checks.broken_links]
 timeout_seconds = 120    # every check takes this, overriding check_timeout_seconds
+
+[http]
+timeout_seconds = 10.0
+headers = { Authorization = "Bearer ${OWLET_TOKEN}" }    # read from the environment, so the token stays out of the file
 ```
 
 Owlet validates the whole config before it sends any request. Unknown keys, unknown checks, unknown options, values of the wrong type and option values a check can't use all stop the run with a `Config error:` message and exit code 2. Options for checks that aren't in `active_checks` are validated too, so a typo doesn't stay hidden until you turn the check on.
@@ -180,7 +189,7 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
     return Result(Status.PASS, "Found a title.")
 ```
 
-- **Context:** the first parameter. `ctx.target` is the configured URL. `ctx.get(url)` and `ctx.head(url)` send a request once per run and share the response with every other check that asks for the same URL. They follow redirects unless you pass `follow_redirects=False`, which is shared separately. Spellings of one URL share a request: `https://Example.com:443/` is the same as `https://example.com`, and fragments are ignored. Requests made directly through `ctx.http_client` aren't shared.
+- **Context:** the first parameter. `ctx.target` is the configured URL. `ctx.get(url)` and `ctx.head(url)` send a request once per run and share the response with every other check that asks for the same URL. They follow redirects unless you pass `follow_redirects=False`, which is shared separately. Spellings of one URL share a request: `https://Example.com:443/` is the same as `https://example.com`, and fragments are ignored. Requests made directly through `ctx.http_client` aren't shared, but do use the `[http]` settings. A check that opens its own connections should use `ctx.timeout_seconds` as its timeout, as `ssl_certificate` does.
 - **Options:** keyword-only parameters after `*`, each with a default. `timeout_seconds` is reserved for the check's timeout, so an option can't use that name. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
 - **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header. Every `Result` needs a status and a `summary`: one non-empty line saying what the check found. A summary with a line break becomes an `ERROR`, so put extra lines for people in `details=` (a list of strings, printed indented under the summary), as `broken_links` does for each broken link. Put values for scripts in `data=` (a JSON-serializable dict, only shown in `--json` output), such as `data={"days_left": 69}`. Owlet fills in `check_name` and `duration_seconds` itself.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`, including filesystem errors such as `FileNotFoundError` or `PermissionError`, which point at a bug in the check rather than the site. If a check that `yield`s results crashes or times out partway, the results it already yielded are kept, followed by the `FAIL` or `ERROR`.

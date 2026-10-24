@@ -10,6 +10,8 @@ import httpx
 class Context:
     target: str
     http_client: httpx.AsyncClient
+    timeout_seconds: float
+    """Network timeout from [http].timeout_seconds, for checks that open their own connections instead of using http_client."""
     _cache: dict[Hashable, asyncio.Task] = field(default_factory=dict, init=False, repr=False)
 
     def _once[T](self, key: Hashable, factory: Callable[[], Coroutine[Any, Any, T]]) -> Awaitable[T]:

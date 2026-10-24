@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from owlet.check import Check
-from owlet.config import Config, ConfigError
+from owlet.config import Config, ConfigError, HttpConfig
 from owlet.suggest import with_suggestion
 
 
@@ -18,11 +18,12 @@ class PlannedCheck:
 
 @dataclass(frozen=True)
 class Plan:
-    """Everything a run needs, fully validated: the target, strict mode, and the checks to run in output order."""
+    """Everything a run needs, fully validated: the target, strict mode, the checks to run in output order, and HTTP settings."""
 
     target: str
     strict: bool
     checks: Sequence[PlannedCheck]
+    http: HttpConfig
 
 
 def resolve(config: Config, available: Mapping[str, Check], *, only: Sequence[str] | None = None, strict: bool = False) -> Plan:
@@ -43,6 +44,7 @@ def resolve(config: Config, available: Mapping[str, Check], *, only: Sequence[st
         checks=[
             PlannedCheck(available[name], options[name], config.check_timeouts.get(name, config.check_timeout_seconds)) for name in active
         ],
+        http=config.http,
     )
 
 

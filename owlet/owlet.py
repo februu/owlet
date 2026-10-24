@@ -1,9 +1,11 @@
 import asyncio
+from collections.abc import Mapping
 from enum import IntEnum
 
 import httpx
 
 from owlet.check import Result, Status
+from owlet.config import HttpConfig
 from owlet.context import Context
 from owlet.plan import Plan
 
@@ -30,8 +32,8 @@ class Owlet:
         self.plan = plan
 
     async def run(self) -> list[Result]:
-        async with httpx.AsyncClient() as http_client:
-            context = Context(target=self.plan.target, http_client=http_client)
+        async with _http_client(self.plan.http, self.plan.target) as http_client:
+            context = Context(target=self.plan.target, http_client=http_client, timeout_seconds=self.plan.http.timeout_seconds)
             try:
                 async with asyncio.TaskGroup() as tg:
                     tasks = [
@@ -47,3 +49,36 @@ class Owlet:
 
     def exit_code(self, results: list[Result]) -> ExitCode:
         return ExitCode.CHECKS_FAILED if any(self.is_failure(result) for result in results) else ExitCode.OK
+
+
+def _http_client(settings: HttpConfig, target: str) -> httpx.AsyncClient:
+    hooks = [_TargetHeaders(target, settings.headers)] if settings.headers else []
+    return httpx.AsyncClient(
+        timeout=settings.timeout_seconds,
+        verify=settings.verify,
+        limits=httpx.Limits(max_connections=settings.max_connections),
+        headers={"User-Agent": settings.user_agent},
+        event_hooks={"request": hooks},
+    )
+
+
+class _TargetHeaders:
+    """A request hook that sends the configured headers only to the target's host, and only over HTTPS for an https:// target.
+
+    httpx runs request hooks on every redirect hop and copies the previous hop's headers into the next, so this removes them
+    from requests that don't qualify too, e.g. a redirect from the target to another site.
+    """
+
+    def __init__(self, target: str, headers: Mapping[str, str]):
+        # Parsed by httpx like the requests are, so hosts compare the same way, e.g. international domains as punycode.
+        url = httpx.URL(target)
+        self.host = url.host
+        self.allow_http = url.scheme == "http"
+        self.headers = headers
+
+    async def __call__(self, request: httpx.Request) -> None:
+        if request.url.host == self.host and (request.url.scheme == "https" or self.allow_http):
+            request.headers.update(self.headers)
+        else:
+            for name in self.headers:
+                request.headers.pop(name, None)

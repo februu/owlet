@@ -17,7 +17,7 @@ from rich.table import Table
 from rich.text import Text
 
 from owlet.check import Check, Result, Status
-from owlet.config import CHECK_TIMEOUT_KEY, Config, ConfigError, load_config, validate_target
+from owlet.config import CHECK_TIMEOUT_KEY, Config, ConfigError, HttpConfig, load_config, validate_target
 from owlet.discover import CHECKS_PACKAGE, PLUGIN_PACKAGE, discover_checks
 from owlet.owlet import ExitCode, Owlet
 from owlet.plan import resolve
@@ -249,8 +249,18 @@ def _starter_config(target: str, checks: list[Check]) -> str:
     for group, group_checks in groupby(checks, key=_group):
         lines.append(f"    # {group}")
         lines.extend(f'    "{check.name}",' for check in group_checks)
+    http = HttpConfig()
     lines += [
         "]",
+        "",
+        "# HTTP client settings. Uncomment the table and a line to change a default.",
+        "# [http]",
+        "# timeout_seconds = " + json.dumps(http.timeout_seconds),
+        "# user_agent = " + json.dumps(http.user_agent),
+        "# verify = " + json.dumps(http.verify) + "    # TLS verification for HTTP requests; ssl_certificate always verifies",
+        "# max_connections = " + json.dumps(http.max_connections),
+        "# Sent only to the target's host, and only over HTTPS for an https:// target. ${NAME} reads an environment variable.",
+        '# headers = { Authorization = "Bearer ${OWLET_TOKEN}" }',
         "",
         "# Per-check options. Uncomment a table and a line to change a default.",
         f"# Every [checks.<name>] table also takes {CHECK_TIMEOUT_KEY}, overriding check_timeout_seconds for that check.",

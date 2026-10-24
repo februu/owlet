@@ -8,8 +8,6 @@ from owlet.check import Result, Status, check
 from owlet.config import ConfigError
 from owlet.context import Context
 
-CONNECT_TIMEOUT_SECONDS = 10
-
 
 def _validate_ssl_certificate(*, fail_days: int, warn_days: int) -> None:
     if fail_days > warn_days:
@@ -27,7 +25,7 @@ async def ssl_certificate(ctx: Context, *, fail_days: int = 14, warn_days: int =
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(host, parts.port or 443, ssl=ssl.create_default_context(), server_hostname=host),
-            timeout=CONNECT_TIMEOUT_SECONDS,
+            timeout=ctx.timeout_seconds,
         )
     except ssl.SSLCertVerificationError as e:
         return Result(Status.FAIL, f"Certificate verification failed: {e.verify_message}.")
