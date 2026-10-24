@@ -21,8 +21,14 @@ packages = ["owlet"]
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+xfail_strict = true
 
 [tool.ruff]
 line-length = 140
