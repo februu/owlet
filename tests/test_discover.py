@@ -1,13 +1,15 @@
 """discover_checks: finding built-in checks, plugin files and installed plugin packages."""
 
+import pkgutil
 import sys
+from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
 
 from owlet.check import Result, Status, check
 from owlet.config import ConfigError
-from owlet.discover import ENTRY_POINT_GROUP, PLUGIN_PACKAGE, discover_checks
+from owlet.discover import CHECKS_PACKAGE, ENTRY_POINT_GROUP, PLUGIN_PACKAGE, discover_checks
 
 PLUGIN = """
 from owlet.check import Result, Status, check
@@ -31,13 +33,19 @@ def write_plugin(tmp_path):
     return write
 
 
+def built_in_modules() -> set[str]:
+    """The modules in owlet/checks, each expected to define at least one check. `_private` modules may hold shared helpers instead."""
+    package = import_module(CHECKS_PACKAGE)
+    return {f"{CHECKS_PACKAGE}.{module.name}" for module in pkgutil.iter_modules(package.__path__) if not module.name.startswith("_")}
+
+
 def test_built_in_checks_are_found_without_plugins():
-    assert "http_status" in discover_checks()
+    assert built_in_modules() <= {check.func.__module__ for check in discover_checks().values()}
 
 
 def test_discovery_survives_being_repeated_across_tests():
     """Guards the session fixture in conftest: built-ins must be back in the registry after isolated_registry restores it."""
-    assert "http_status" in discover_checks()
+    assert built_in_modules() <= {check.func.__module__ for check in discover_checks().values()}
 
 
 def test_plugin_checks_come_after_the_built_in_ones(write_plugin):
@@ -75,8 +83,12 @@ def test_plugin_that_fails_to_import_is_not_a_config_error_and_is_forgotten(writ
 
 
 def test_plugin_check_with_a_taken_name_is_rejected(write_plugin):
-    with pytest.raises(ValueError, match="Duplicate check name 'http_status'") as error:
-        discover_checks([write_plugin("clash.py", "http_status")])
+    @check
+    async def taken(ctx):
+        return Result(Status.PASS, "Fine.")
+
+    with pytest.raises(ValueError, match="Duplicate check name 'taken'") as error:
+        discover_checks([write_plugin("clash.py", "taken")])
 
     assert not isinstance(error.value, ConfigError)
 

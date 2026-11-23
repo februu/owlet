@@ -222,18 +222,18 @@ def test_exit_code_reflects_the_results(config, active, flags, extra, expected):
     [
         "def broken(:\n",
         "raise RuntimeError('boom')\n",
-        "from owlet.check import check\n@check\nasync def http_status(ctx):\n    pass\n",
-        "from owlet.check import check\n@check\ndef not_async(ctx):\n    pass\n",
+        "from owlet.check import check\n@check\nasync def broken(ctx):\n    pass\n@check\nasync def broken(ctx):\n    pass\n",
+        "from owlet.check import check\n@check\ndef broken(ctx):\n    pass\n",
         "from owlet.check import check\n"
         "def validate(**options):\n    raise KeyError('oops')\n"
-        "@check(validate=validate)\nasync def crashes_validating(ctx):\n    pass\n",
+        "@check(validate=validate)\nasync def broken(ctx):\n    pass\n",
     ],
     ids=["syntax-error", "raises", "duplicate-name", "not-async", "validate-crashes"],
 )
 def test_plugin_crash_exits_3_with_a_traceback(capsys, tmp_path, source):
     (tmp_path / "plugin.py").write_text(source, encoding="utf-8")
     path = tmp_path / "config.toml"
-    path.write_text(f"target = {json.dumps(TARGET)}\nplugins = ['plugin.py']\nactive_checks = ['http_status']\n", encoding="utf-8")
+    path.write_text(f"target = {json.dumps(TARGET)}\nplugins = ['plugin.py']\nactive_checks = ['broken']\n", encoding="utf-8")
 
     assert exit_code(str(path)) == 3
 
@@ -417,10 +417,17 @@ def test_text_from_checks_is_not_read_as_rich_markup(capsys, config):
 
 
 def test_list_checks_shows_built_in_checks_by_module(capsys):
+    async def built_in(ctx):
+        """Stands in for a built-in check."""
+        return Result(Status.PASS, "Fine.")
+
+    built_in.__module__ = "owlet.checks.example"
+    check(built_in)
+
     assert exit_code("--list-checks") == 0
     out = capsys.readouterr().out
-    assert "== availability ==" in out
-    assert "http_status" in out
+    assert re.search(r"(?m)^== example ==$", out)
+    assert re.search(r"(?m)^built_in +Stands in for a built-in check\.$", out)
 
 
 def test_list_checks_with_a_config_includes_its_plugins_with_options(capsys, config):
@@ -441,6 +448,15 @@ def test_list_checks_with_an_invalid_config_exits_2(capsys, tmp_path):
 # --init
 
 
+@pytest.fixture
+def tunable():
+    """A check with an option of each type TOML can hold, so --init has options to write whatever the built-in checks are."""
+
+    @check
+    async def tunable(ctx, *, count: int = 3, ratio: float = 0.5, label: str = 'say "hi"', enabled: bool = True):
+        return Result(Status.PASS, "Fine.")
+
+
 def init_config(capsys, tmp_path, target: str = TARGET):
     assert exit_code("--init", target) == 0
     path = tmp_path / "config.toml"
@@ -448,7 +464,7 @@ def init_config(capsys, tmp_path, target: str = TARGET):
     return path
 
 
-def test_init_output_loads_and_runs_every_check(capsys, tmp_path):
+def test_init_output_loads_and_runs_every_check(tunable, capsys, tmp_path):
     settings = load_config(init_config(capsys, tmp_path))
     available = discover_checks()
 
@@ -458,7 +474,7 @@ def test_init_output_loads_and_runs_every_check(capsys, tmp_path):
     assert [planned.check.name for planned in plan.checks] == list(available)
 
 
-def test_init_output_is_still_valid_with_every_commented_setting_turned_on(capsys, tmp_path, monkeypatch):
+def test_init_output_is_still_valid_with_every_commented_setting_turned_on(tunable, capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("OWLET_TOKEN", "secret")
     path = init_config(capsys, tmp_path)
     path.write_text(re.sub(r"(?m)^# (\[|\w+ = )", r"\1", path.read_text("utf-8")), encoding="utf-8")
