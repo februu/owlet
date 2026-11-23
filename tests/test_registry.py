@@ -222,22 +222,43 @@ def test_option_values_of_the_wrong_type_are_a_config_error(annotation, value):
         check_with_option(annotation).resolve_options({"opt": value})
 
 
-@pytest.mark.xfail(reason="with `from __future__ import annotations` the annotation is a string, so validation is silently skipped")
-def test_string_annotations_are_validated_too(tmp_path):
-    plugin = tmp_path / "stringly.py"
-    plugin.write_text(
-        "from __future__ import annotations\n"
-        "from owlet.check import check\n"
-        "@check\n"
-        "async def stringly(ctx, *, limit: int = 1):\n"
-        "    pass\n",
-        encoding="utf-8",
-    )
+TYPED_PLUGIN = """
+{future}
+from typing import TYPE_CHECKING
+from owlet.check import check
+if TYPE_CHECKING:
+    from owlet.context import Context
+Limit = int
+@check
+async def typed(ctx: Context, *, limit: Limit = 1, names: list[str] = ["a"]):
+    pass
+"""
 
-    stringly = discover_checks([plugin])["stringly"]
 
-    with pytest.raises(ConfigError, match=r"Option 'stringly\.limit' must be int"):
-        stringly.resolve_options({"limit": "nope"})
+@pytest.mark.parametrize("future", ["", "from __future__ import annotations"], ids=["lazy", "future-strings"])
+def test_option_annotations_are_resolved_with_context_imported_only_for_type_checkers(tmp_path, future):
+    plugin = tmp_path / "typed.py"
+    plugin.write_text(TYPED_PLUGIN.format(future=future), encoding="utf-8")
+
+    typed = discover_checks([plugin])["typed"]
+
+    assert typed.options["limit"].annotation is int
+    with pytest.raises(ConfigError, match=r"Option 'typed\.limit' must be int"):
+        typed.resolve_options({"limit": "nope"})
+    with pytest.raises(ConfigError, match=r"Option 'typed\.names' must be list\[str\]"):
+        typed.resolve_options({"names": [1]})
+
+
+@pytest.mark.parametrize("quoted", [False, True], ids=["lazy", "string"])
+def test_option_annotation_that_cannot_be_resolved_is_rejected_when_the_check_is_registered(quoted):
+    async def unresolved(ctx, *, limit: Missing = 1):  # noqa: F821
+        pass
+
+    if quoted:
+        unresolved.__annotations__ = {"limit": "Missing"}
+
+    with pytest.raises(TypeError, match=r"Check 'unresolved': can't resolve the annotation 'Missing' of option 'limit': NameError"):
+        Registry().check(unresolved)
 
 
 def test_unset_options_are_left_out_so_the_function_defaults_apply():

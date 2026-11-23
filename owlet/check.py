@@ -1,3 +1,4 @@
+import annotationlib
 import asyncio
 import contextlib
 import inspect
@@ -14,7 +15,7 @@ from collections.abc import (
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from traceback import StackSummary, TracebackException
-from typing import Any, Concatenate, cast, get_args, get_origin
+from typing import Any, Concatenate, ForwardRef, cast, evaluate_forward_ref, get_args, get_origin
 
 import httpx
 
@@ -276,7 +277,8 @@ def _make_check(func, validate: Callable[..., None] | None) -> Check:
 
 def _option_parameters(func) -> dict[str, inspect.Parameter]:
     """Every check takes the Context first; anything after it is an option and needs a default."""
-    params = list(inspect.signature(func).parameters.values())
+    # FORWARDREF leaves names that don't resolve as ForwardRefs instead of raising, e.g. Context imported under TYPE_CHECKING.
+    params = list(inspect.signature(func, annotation_format=annotationlib.Format.FORWARDREF).parameters.values())
     ctx_param, option_params = (params[0], params[1:]) if params else (None, [])
     if ctx_param is None or ctx_param.kind not in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
         raise TypeError(f"Check '{func.__name__}' must take the Context as its first positional parameter.")
@@ -285,4 +287,23 @@ def _option_parameters(func) -> dict[str, inspect.Parameter]:
             raise TypeError(f"Check '{func.__name__}': option '{param.name}' must be keyword-only with a default.")
         if param.name == CHECK_TIMEOUT_KEY:
             raise TypeError(f"Check '{func.__name__}': '{CHECK_TIMEOUT_KEY}' is reserved for the check's timeout; rename the option.")
-    return {param.name: param for param in option_params}
+    return {param.name: _resolve_annotation(func, param) for param in option_params}
+
+
+def _resolve_annotation(func, param: inspect.Parameter) -> inspect.Parameter:
+    """Evaluate an option's annotation if it's still a string (`from __future__ import annotations`) or an unresolved ForwardRef.
+
+    Only options need a real type, to check config values against. The Context parameter is left as it is, so `ctx: Context`
+    works with Context imported only under TYPE_CHECKING.
+    """
+    annotation = param.annotation
+    if not isinstance(annotation, (str, ForwardRef)):
+        return param
+    ref = annotation if isinstance(annotation, ForwardRef) else ForwardRef(annotation)
+    try:
+        resolved = evaluate_forward_ref(ref, owner=func)
+    except (NameError, AttributeError, SyntaxError, TypeError) as e:
+        raise TypeError(
+            f"Check '{func.__name__}': can't resolve the annotation '{ref.__forward_arg__}' of option '{param.name}': {_describe(e)}."
+        ) from None
+    return param.replace(annotation=resolved)
