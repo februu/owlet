@@ -66,9 +66,12 @@ class Result:
             raise TypeError(f"Result summary must be a non-empty string, got {self.summary!r}.")
         if self.summary.splitlines() != [self.summary]:
             raise ValueError(f"Result summary must be one line; put the rest in details: {self.summary!r}.")
-        if isinstance(self.details, str) or not all(isinstance(line, str) for line in self.details):
+        if isinstance(self.details, str) or not isinstance(self.details, Iterable):
             raise TypeError(f"Result details must be a list of strings, got {self.details!r}.")
-        object.__setattr__(self, "details", tuple(self.details))
+        details = tuple(self.details)
+        if not all(isinstance(line, str) for line in details):
+            raise TypeError(f"Result details must be a list of strings, got {details!r}.")
+        object.__setattr__(self, "details", details)
         # Fail inside the check, where it becomes an ERROR result, rather than when the JSON is printed.
         try:
             json.dumps(self.data, allow_nan=False)

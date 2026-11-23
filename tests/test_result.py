@@ -26,7 +26,7 @@ def test_summary_must_be_one_line(summary):
         Result(Status.PASS, summary)
 
 
-@pytest.mark.parametrize("details", ["a string", ["fine", 5], [None]])
+@pytest.mark.parametrize("details", ["a string", ["fine", 5], [None], None, 5, (line for line in ["fine", 5])])
 def test_details_must_be_a_list_of_strings(details):
     with pytest.raises(TypeError, match="details"):
         Result(Status.PASS, "Fine.", details=details)
@@ -36,13 +36,15 @@ def test_details_are_stored_as_a_tuple():
     assert Result(Status.PASS, "Fine.", details=["a", "b"]).details == ("a", "b")
 
 
-@pytest.mark.xfail(reason="validating details consumes a generator, so they silently end up empty")
-def test_details_from_a_generator_are_kept_or_rejected_but_not_lost():
-    try:
-        result = Result(Status.PASS, "Fine.", details=(line for line in ["a", "b"]))
-    except TypeError:
-        return
-    assert result.details == ("a", "b")
+def test_details_from_a_generator_are_kept():
+    assert Result(Status.PASS, "Fine.", details=(line for line in ["a", "b"])).details == ("a", "b")
+
+
+def test_details_are_copied_so_later_changes_do_not_reach_the_result():
+    details = ["a"]
+    result = Result(Status.PASS, "Fine.", details=details)
+    details.append("b")
+    assert result.details == ("a",)
 
 
 @pytest.mark.parametrize("value", [object(), {1, 2}, math.nan, math.inf, -math.inf])
