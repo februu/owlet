@@ -30,7 +30,7 @@ class HttpConfig:
     """Extra headers, with ${NAME} environment variables expanded. Sent only to the target's host, and only over HTTPS for an
     https:// target, so tokens don't reach third-party links or travel unencrypted."""
     verify: bool = True
-    """Verify TLS certificates on HTTP requests. ssl_certificate always verifies."""
+    """Verify TLS certificates on HTTP requests made through the shared client."""
     max_connections: int = 100
     """Most connections open at once, across all checks."""
 

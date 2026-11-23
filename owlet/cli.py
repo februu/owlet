@@ -257,7 +257,7 @@ def _starter_config(target: str, checks: list[Check]) -> str:
         "# [http]",
         "# timeout_seconds = " + json.dumps(http.timeout_seconds),
         "# user_agent = " + json.dumps(http.user_agent),
-        "# verify = " + json.dumps(http.verify) + "    # TLS verification for HTTP requests; ssl_certificate always verifies",
+        "# verify = " + json.dumps(http.verify) + "    # TLS certificate verification for HTTP requests",
         "# max_connections = " + json.dumps(http.max_connections),
         "# Sent only to the target's host, and only over HTTPS for an https:// target. ${NAME} reads an environment variable.",
         '# headers = { Authorization = "Bearer ${OWLET_TOKEN}" }',

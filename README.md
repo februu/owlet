@@ -10,7 +10,6 @@ _Owlet is a small async website health checker configured from one TOML file._
 
 **Current features:**
 
-- 8 built-in checks covering availability, TLS, security headers, crawlability and links
 - Five result states: `PASS`, `WARN`, `FAIL`, `SKIP` and `ERROR`
 - Per-check options, validated against each check's signature when the config loads
 - Exit codes for CI and cron, with a strict mode that treats warnings as failures
@@ -22,7 +21,7 @@ _Owlet is a small async website health checker configured from one TOML file._
 
 **Upcoming features:**
 
-- More checks: DNS and email records, cookie flags, exposed files, SEO basics
+- Built-in checks: availability, TLS, security headers, crawlability, links, DNS and email records, cookie flags, exposed files, SEO basics
 
 _Suggestions are welcome!_
 
@@ -61,8 +60,8 @@ Running `owlet` with no arguments shows the help.
 
 | Option | Effect |
 |---|---|
-| `--target URL` | Checks `URL` instead of the config's `target`. Without a config file, runs every check, or the `--only` ones, with default options: `owlet --target https://example.com --only http_status`. |
-| `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only sitemap --only robots_txt`. Any available check is allowed, not just active ones. |
+| `--target URL` | Checks `URL` instead of the config's `target`. Without a config file, runs every check, or the `--only` ones, with default options: `owlet --target https://example.com --only has_title`. |
+| `--only CHECK` | Runs only this check instead of `active_checks`. Repeat it for several: `--only has_title --only has_description`. Any available check is allowed, not just active ones. |
 | `--strict` | Treats warnings as failures, even if the config has `strict = false`. |
 | `-v`, `--verbose` | Prints the traceback under each `ERROR` result, to debug the check that crashed. `--json` always includes it. |
 | `-q`, `--quiet` | Prints only results that fail the run (`FAIL`, `ERROR`, and `WARN` in strict mode). If any result fails, the count per status follows them. If none fail, it prints nothing at all, not even the counts, so cron only emails you about problems. With `--json`, it always prints the document, with an empty `results` array if none fail. |
@@ -80,25 +79,21 @@ Running `owlet` with no arguments shows the help.
 | `check_timeout_seconds` | number | `30.0` | How long one check may run. A check still running after this is stopped and reported as `FAIL` with `Timed out after Ns.`, and the other checks carry on. Override it for one check with `timeout_seconds` in its `[checks.<name>]` table. |
 | `checks.<name>` | table | | Options for one check. See [checks](#checks). |
 | `plugins` | list of strings | `[]` | `.py` files, or folders of them, with extra checks. Paths are relative to the config file. See [plugins](#plugins). |
-| `http.timeout_seconds` | number | `5.0` | Timeout for each network step of a request: connecting, sending, waiting for data. `ssl_certificate` uses it for its connection too. A request that runs out of time is a `FAIL`. |
+| `http.timeout_seconds` | number | `5.0` | Timeout for each network step of a request: connecting, sending, waiting for data. Checks that open their own connections use it too. A request that runs out of time is a `FAIL`. |
 | `http.user_agent` | string | `owlet/<version>` | User-Agent sent with every request. Some WAFs and CDNs block unfamiliar ones, so set a browser-like value if the site rejects owlet. |
-| `http.headers` | table of strings | `{}` | Extra headers, such as `Authorization`. They're sent only to the target's host, and only over HTTPS for an `https://` target, so a token never reaches the third-party links `broken_links` checks or travels unencrypted. `${NAME}` is replaced with the environment variable `NAME`, and `$$` with a literal `$`. An unset variable is a config error. Set the User-Agent with `user_agent`, not here. |
-| `http.verify` | bool | `true` | Verify TLS certificates on HTTP requests. Turn it off for sites with self-signed certificates. `ssl_certificate` always verifies, so it still reports the certificate. |
+| `http.headers` | table of strings | `{}` | Extra headers, such as `Authorization`. They're sent only to the target's host, and only over HTTPS for an `https://` target, so a token never reaches third-party sites a check requests or travels unencrypted. `${NAME}` is replaced with the environment variable `NAME`, and `$$` with a literal `$`. An unset variable is a config error. Set the User-Agent with `user_agent`, not here. |
+| `http.verify` | bool | `true` | Verify TLS certificates on HTTP requests. Turn it off for sites with self-signed certificates. |
 | `http.max_connections` | int | `100` | Most connections open at once, across all checks. |
 
 ```toml
 target = "https://example.com"
 strict = false
-active_checks = ["response_time", "ssl_certificate", "broken_links"]
+plugins = ["my_checks.py"]
+active_checks = ["has_title"]
 
-[checks.response_time]
-limit_seconds = 0.8
-
-[checks.ssl_certificate]
-warn_days = 45
-
-[checks.broken_links]
-timeout_seconds = 120    # every check takes this, overriding check_timeout_seconds
+[checks.has_title]
+min_length = 10
+timeout_seconds = 60    # every check takes this, overriding check_timeout_seconds
 
 [http]
 timeout_seconds = 10.0
@@ -109,16 +104,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 
 ## Checks
 
-| Check | What it verifies | Options (default) |
-|---|---|---|
-| `http_status` | The page responds with a 2xx status after following redirects. | |
-| `response_time` | The page responds in time, including redirects. | `limit_seconds` (1.5) |
-| `https_redirect` | The `http://` version of the site redirects to `https://`. | |
-| `ssl_certificate` | The certificate verifies and isn't close to expiry. `FAIL` under `fail_days`, `WARN` under `warn_days`, `SKIP` for `http://` targets. | `fail_days` (14), `warn_days` (30) |
-| `security_headers` | HSTS, CSP, `X-Content-Type-Options`, `Referrer-Policy` and clickjacking protection, one result per header. | |
-| `robots_txt` | `/robots.txt` exists and isn't empty. `WARN` if missing or empty. | |
-| `sitemap` | A sitemap is listed in `robots.txt` or served at `/sitemap.xml`. `WARN` if missing, `FAIL` if invalid. | |
-| `broken_links` | Links and resources on the page don't return 4xx or 5xx. | `max_links` (50), `max_concurrent_requests` (10) |
+There are no built-in checks yet. Until there are, write your own: see [Writing your own check](#writing-your-own-check). `has_title` in the examples here is the check defined there.
 
 ## Results and exit codes
 
@@ -153,11 +139,11 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
   "summary": { "PASS": 1, "WARN": 0, "FAIL": 1, "SKIP": 0, "ERROR": 0 },
   "results": [
     {
-      "check": "http_status", "name": null, "status": "PASS", "summary": "Got status code 200.",
+      "check": "has_title", "name": null, "status": "PASS", "summary": "Found a title.",
       "details": [], "data": {}, "duration_seconds": 0.412, "fails_run": false, "traceback": null
     },
     {
-      "check": "broken_links", "name": null, "status": "FAIL", "summary": "2 of 31 links broken:",
+      "check": "no_broken_links", "name": null, "status": "FAIL", "summary": "2 of 31 links broken:",
       "details": ["https://example.com/old (404)", "https://cdn.example.com/x.js (ConnectError)"],
       "data": {}, "duration_seconds": 0.731, "fails_run": true, "traceback": null
     }
@@ -168,7 +154,7 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 - `started_at` is in UTC. `duration_seconds` at the top is the whole run. On a result, it's how long that check took, and every result from one check shares it.
 - `details` holds extra lines for people, such as each broken link. `data` holds values for scripts, and its keys depend on the check.
 - `summary` always has all five statuses, including those with a count of 0. It counts every result, even with `--quiet`.
-- `name` is `null` unless the check produces several results, like `security_headers` does per header.
+- `name` is `null` unless the check produces several results, such as one per header for a check that looks at several headers.
 - `traceback` is the Python traceback when the check crashed with an `ERROR`, and `null` otherwise.
 - `fails_run` says whether that result makes the run fail, with strict mode already applied. To get only the failures, use `--quiet`, which leaves only results with `fails_run: true`.
 
@@ -189,9 +175,9 @@ async def has_title(ctx: Context, *, min_length: int = 1) -> Result:
     return Result(Status.PASS, "Found a title.")
 ```
 
-- **Context:** the first parameter. `ctx.target` is the configured URL. `ctx.get(url)` and `ctx.head(url)` send a request once per run and share the response with every other check that asks for the same URL. They follow redirects unless you pass `follow_redirects=False`, which is shared separately. Spellings of one URL share a request: `https://Example.com:443/` is the same as `https://example.com`, and fragments are ignored. Requests made directly through `ctx.http_client` aren't shared, but do use the `[http]` settings. A check that opens its own connections should use `ctx.timeout_seconds` as its timeout, as `ssl_certificate` does.
+- **Context:** the first parameter. `ctx.target` is the configured URL. `ctx.get(url)` and `ctx.head(url)` send a request once per run and share the response with every other check that asks for the same URL. They follow redirects unless you pass `follow_redirects=False`, which is shared separately. Spellings of one URL share a request: `https://Example.com:443/` is the same as `https://example.com`, and fragments are ignored. Requests made directly through `ctx.http_client` aren't shared, but do use the `[http]` settings. A check that opens its own connections should use `ctx.timeout_seconds` as its timeout.
 - **Options:** keyword-only parameters after `*`, each with a default. `timeout_seconds` is reserved for the check's timeout, so an option can't use that name. Give them a type annotation too: owlet validates config values against it, for `int`, `float`, `bool`, `str` and `list[...]`. Options without an annotation, or with one owlet can't check (such as a union), accept any value.
-- **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, as `security_headers` does for each header. Every `Result` needs a status and a `summary`: one non-empty line saying what the check found. A summary with a line break becomes an `ERROR`, so put extra lines for people in `details=` (a list of strings, printed indented under the summary), as `broken_links` does for each broken link. Put values for scripts in `data=` (a JSON-serializable dict, only shown in `--json` output), such as `data={"days_left": 69}`. Owlet fills in `check_name` and `duration_seconds` itself.
+- **Results:** return one `Result`, return an iterable of them, or `yield` them from an async generator. Use `name=` to tell several results from one check apart, such as one per header. Every `Result` needs a status and a `summary`: one non-empty line saying what the check found. A summary with a line break becomes an `ERROR`, so put extra lines for people in `details=` (a list of strings, printed indented under the summary), such as each broken link. Put values for scripts in `data=` (a JSON-serializable dict, only shown in `--json` output), such as `data={"days_left": 69}`. Owlet fills in `check_name` and `duration_seconds` itself.
 - **Errors:** you don't need to catch network errors; they become `FAIL` automatically. Any other exception becomes `ERROR`, including filesystem errors such as `FileNotFoundError` or `PermissionError`, which point at a bug in the check rather than the site. If a check that `yield`s results crashes or times out partway, the results it already yielded are kept, followed by the `FAIL` or `ERROR`.
 - **Option values:** owlet checks option types for you. To reject values of the right type that the check can't use, pass a `validate` function to `@check`. It takes every option as a keyword argument and raises `ConfigError` (from `owlet.config`) for a bad value. Owlet calls it for every available check when the config loads, even checks that aren't in `active_checks` or have no `[checks.<name>]` table (then with the defaults), so a bad value stops the run with `Config error:` and exit code 2, before any request is sent. The check itself can then assume its options are valid.
 
@@ -215,7 +201,7 @@ To keep your checks out of owlet's source, write them the same way in your own f
 
 ```toml
 plugins = ["my_checks.py", "checks/"]
-active_checks = ["http_status", "has_title"]
+active_checks = ["has_title"]
 ```
 
 Each entry is a `.py` file or a folder, relative to the config file. For a folder, owlet imports every `.py` file in it except those starting with `_`. Plugin files run as Python code when the config loads, so only list files you trust. Two plugin files can't share a file name. Plugin files are imported on their own, not as part of a package, so import from other plugin files by adding their folder to `sys.path` or by turning them into a package.

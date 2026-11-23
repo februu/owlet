@@ -3,7 +3,7 @@ from collections.abc import Iterable
 
 
 def with_suggestion(name: str, choices: Iterable[str], *, match_on: str | None = None) -> str:
-    """`name`, plus the closest of `choices` if one is close enough, e.g. `ssl-certificate (did you mean ssl_certificate?)`.
+    """`name`, plus the closest of `choices` if one is close enough, e.g. `has-title (did you mean has_title?)`.
 
     `match_on` compares a different string than the one shown, e.g. `--jsn` for the argument `--jsn=1`.
     """
