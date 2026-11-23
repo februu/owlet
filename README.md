@@ -104,7 +104,11 @@ Owlet validates the whole config before it sends any request. Unknown keys, unkn
 
 ## Checks
 
-There are no built-in checks yet. Until there are, write your own: see [Writing your own check](#writing-your-own-check). `has_title` in the examples here is the check defined there.
+| Check | What it verifies | Options (default) |
+|---|---|---|
+| `http_status` | The target responds with a 2xx status after following redirects. `FAIL` for 4xx, 5xx, a redirect with no `Location` header, or a redirect loop. `WARN` after more than `max_redirects` redirects. Each redirect is listed under the result. | `max_redirects` (3) |
+
+More are on the way. `has_title` in the examples here is the check from [Writing your own check](#writing-your-own-check).
 
 ## Results and exit codes
 

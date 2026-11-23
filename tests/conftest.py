@@ -5,9 +5,10 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from owlet.check import Registry, registry
+from owlet.check import Registry, Result, registry
 from owlet.config import HttpConfig
 from owlet.discover import PLUGIN_PACKAGE, discover_checks
+from owlet.owlet import Owlet
 from owlet.plan import Plan, PlannedCheck
 
 TARGET = "https://site.test"
@@ -63,6 +64,20 @@ class FakeSite:
 
         self.respond = respond
 
+    def serve(self, routes: dict[str, httpx.Response]) -> None:
+        """Answer each URL in `routes` with a copy of its response, and any other URL with 404.
+
+        Keys are URLs as httpx prints them, e.g. `https://site.test` for the target and `https://site.test/a` for a path.
+        """
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            response = routes.get(str(request.url))
+            if response is None:
+                return httpx.Response(404)
+            return httpx.Response(response.status_code, headers=response.headers, content=response.content)
+
+        self.respond = respond
+
 
 @pytest.fixture
 def site(monkeypatch) -> FakeSite:
@@ -97,3 +112,15 @@ def plan_for():
         return Plan(target, strict, planned, http or HttpConfig())
 
     return make
+
+
+@pytest.fixture
+def run_check(site):
+    """Run one registered check against the fake site. Options are validated as if they came from the config."""
+
+    async def run(name: str, *, target: str = TARGET, **options) -> list[Result]:
+        check = registry.checks[name]
+        planned = PlannedCheck(check, check.resolve_options(options), 5.0)
+        return await Owlet(Plan(target, False, [planned], HttpConfig())).run()
+
+    return run
